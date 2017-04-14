@@ -198,18 +198,23 @@ public abstract class AstUtils {
         });
     }
 
-    public static boolean isString(ConstantExpression constantExpression) {
-        return constantExpression.getType().getName().equals(String.class.getName());
+    public static boolean isOfType(ConstantExpression constantExpression, Class<?> type) {
+        return constantExpression.getType().getName().equals(type.getName());
     }
 
     @Nullable
     public static ConstantExpression hasSingleConstantStringArg(MethodCallExpression call) {
+        return hasSingleConstantArgOfType(call, String.class);
+    }
+
+    @Nullable
+    public static ConstantExpression hasSingleConstantArgOfType(MethodCallExpression call, Class<?> type) {
         ArgumentListExpression argumentList = (ArgumentListExpression) call.getArguments();
         if (argumentList.getExpressions().size() == 1) {
             Expression argumentExpression = argumentList.getExpressions().get(0);
             if (argumentExpression instanceof ConstantExpression) {
                 ConstantExpression constantArgumentExpression = (ConstantExpression) argumentExpression;
-                if (isString(constantArgumentExpression)) {
+                if (isOfType(constantArgumentExpression, type)) {
                     return constantArgumentExpression;
                 }
             }
@@ -236,7 +241,7 @@ public abstract class AstUtils {
     }
 
     /**
-     * Returns true if the the given statement may have some effect as part of a script body.
+     * Returns true if the given statement may have some effect as part of a script body.
      * Returns false when the given statement may be ignored, provided all other statements in the script body may also be ignored.
      */
     public static boolean mayHaveAnEffect(Statement statement) {

@@ -28,6 +28,8 @@ import java.util.Collections;
 import static java.lang.ClassLoader.getSystemClassLoader;
 
 public class DefaultClassLoaderFactory implements ClassLoaderFactory {
+    // This uses the system classloader and will not release any loaded classes for the life of the daemon process.
+    // Do not use this to load any classes which are part of the build; it will not release them when the build is complete.
     private final CachingServiceLocator systemClassLoaderServiceLocator = CachingServiceLocator.of(new DefaultServiceLocator(getSystemClassLoader()));
 
     @Override
@@ -37,10 +39,6 @@ public class DefaultClassLoaderFactory implements ClassLoaderFactory {
 
     @Override
     public ClassLoader createIsolatedClassLoader(ClassPath classPath) {
-        return doCreateIsolatedClassLoader(classPath);
-    }
-
-    private ClassLoader doCreateIsolatedClassLoader(ClassPath classPath) {
         // This piece of ugliness copies the JAXP (ie XML API) provider, if any, from the system ClassLoader. Here's why:
         //
         // 1. When looking for a provider, JAXP looks for a service resource in the context ClassLoader, which is our isolated ClassLoader. If our classpath above does not contain a
@@ -51,7 +49,7 @@ public class DefaultClassLoaderFactory implements ClassLoaderFactory {
         // 4. JAXP attempts to load the provider using the context ClassLoader. which is our isolated ClassLoader. This is fine if the classname came from step 1 or 3. It blows up if the
         //    classname came from step 2.
         //
-        // So, as a workaround, locate and include the JAXP provider jar in the classpath for our isolated ClassLoader.
+        // So, as a workaround, locate and make visible XML parser classes from the system classloader in our isolated ClassLoader.
         //
         // Note that in practise, this is only triggered when running in our tests
 
@@ -60,11 +58,6 @@ public class DefaultClassLoaderFactory implements ClassLoaderFactory {
         }
 
         return doCreateClassLoader(getIsolatedSystemClassLoader(), classPath);
-    }
-
-    @Override
-    public ClassLoader createClassLoader(ClassLoader parent, ClassPath classPath) {
-        return doCreateClassLoader(parent, classPath);
     }
 
     @Override
@@ -79,21 +72,12 @@ public class DefaultClassLoaderFactory implements ClassLoaderFactory {
         return doCreateFilteringClassLoader(parent, classLoaderSpec);
     }
 
-    @Override
-    public ClassLoader createClassLoader(ClassLoader parent, ClassPath classPath, ClassLoaderCreator creator) {
-        return doCreateClassLoader(parent, classPath, creator);
-    }
-
     protected ClassLoader doCreateClassLoader(ClassLoader parent, ClassPath classPath) {
         return new VisitableURLClassLoader(parent, classPath);
     }
 
     protected ClassLoader doCreateFilteringClassLoader(ClassLoader parent, FilteringClassLoader.Spec spec) {
         return new FilteringClassLoader(parent, spec);
-    }
-
-    protected ClassLoader doCreateClassLoader(ClassLoader parent, ClassPath classPath, ClassLoaderCreator creator) {
-        return creator.create(parent, classPath);
     }
 
     private static void makeServiceVisible(ServiceLocator locator, FilteringClassLoader.Spec classLoaderSpec, Class<?> serviceType) {

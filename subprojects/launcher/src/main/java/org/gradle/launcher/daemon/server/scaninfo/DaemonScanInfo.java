@@ -16,13 +16,12 @@
 
 package org.gradle.launcher.daemon.server.scaninfo;
 
+import org.gradle.api.Action;
+
 /**
- * A means to expose Daemon information _specifically_ for the purpose of build scans.
- * The associated plugin obtains this via the service registry and queries all values
- * when it is applied.
+ * A means to expose Daemon information _specifically_ for the purpose of build scans. The associated plugin obtains this via the service registry and queries all values when it is applied.
  *
- * This API is a contract with the plugin.
- * Any binary incompatible changes will require changes to the plugin.
+ * This API is a contract with the plugin. Any binary incompatible changes will require changes to the plugin.
  */
 public interface DaemonScanInfo {
     /**
@@ -44,4 +43,15 @@ public interface DaemonScanInfo {
      * @return The number of running daemons
      */
     int getNumberOfRunningDaemons();
+
+    /**
+     * Invokes the given action when the Daemon becomes unhealthy in way that requires it be terminated at the end of the build.
+     * <p>
+     * The action will be invoked at-most once during a build.
+     * It will only be invoked for the build in which it was registered (i.e. not subsequent builds).
+     * Each action provided to each invocation of this message will be notified.
+     * <p>
+     * The action receives a free-form, human friendly, string describing why the Daemon needs to be shut down.
+     */
+    void notifyOnUnhealthy(Action<? super String> listener);
 }

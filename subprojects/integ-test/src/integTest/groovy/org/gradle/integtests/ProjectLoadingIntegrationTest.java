@@ -192,9 +192,11 @@ public class ProjectLoadingIntegrationTest extends AbstractIntegrationTest {
 
         TestFile subDirectory = getTestDirectory().file("subdirectory");
         TestFile buildFile = subDirectory.file("build.gradle");
-        buildFile.writelns("task('do-stuff') << {",
+        buildFile.writelns("task('do-stuff') {",
+                "doLast {",
                 "assert prop == 'value'",
                 "assert !project.hasProperty('otherProp')",
+                "}",
                 "}");
         testFile("subdirectory/gradle.properties").write("prop=value");
 
@@ -243,9 +245,9 @@ public class ProjectLoadingIntegrationTest extends AbstractIntegrationTest {
         TestFile childBuildFile = testFile("child/build.gradle");
         childBuildFile.writelns("task('do-stuff')", "task('task')");
 
-        usingProjectDir(getTestDirectory()).usingSettingsFile(settingsFile).withTasks("do-stuff").run().assertTasksExecuted(":child:task", ":do-stuff", ":child:do-stuff");
-        usingBuildFile(rootBuildFile).withTasks("do-stuff").run().assertTasksExecuted(":child:task", ":do-stuff", ":child:do-stuff");
-        usingBuildFile(childBuildFile).usingSettingsFile(settingsFile).withTasks("do-stuff").run().assertTasksExecuted(":child:do-stuff");
+        usingProjectDir(getTestDirectory()).usingSettingsFile(settingsFile).withTasks("do-stuff").run().assertTasksExecuted(":child:task", ":do-stuff", ":child:do-stuff").assertTaskOrder(":child:task", ":do-stuff");
+        usingBuildFile(rootBuildFile).withTasks("do-stuff").run().assertTasksExecuted(":child:task", ":do-stuff", ":child:do-stuff").assertTaskOrder(":child:task", ":do-stuff");
+        usingBuildFile(childBuildFile).usingSettingsFile(settingsFile).withTasks("do-stuff").run().assertTasksExecutedInOrder(":child:do-stuff");
     }
 
     @Test

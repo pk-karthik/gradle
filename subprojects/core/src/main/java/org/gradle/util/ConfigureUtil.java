@@ -24,9 +24,8 @@ import org.gradle.api.internal.ClosureBackedAction;
 import org.gradle.api.internal.DynamicObjectUtil;
 import org.gradle.internal.Actions;
 import org.gradle.internal.metaobject.ConfigureDelegate;
+import org.gradle.internal.metaobject.DynamicInvokeResult;
 import org.gradle.internal.metaobject.DynamicObject;
-import org.gradle.internal.metaobject.InvokeMethodResult;
-import org.gradle.internal.metaobject.SetPropertyResult;
 
 import java.util.Collection;
 import java.util.Map;
@@ -36,21 +35,22 @@ import static org.gradle.util.CollectionUtils.toStringList;
 public class ConfigureUtil {
 
     public static <T> T configureByMap(Map<?, ?> properties, T delegate) {
+        if (properties.isEmpty()) {
+            return delegate;
+        }
         DynamicObject dynamicObject = DynamicObjectUtil.asDynamicObject(delegate);
 
         for (Map.Entry<?, ?> entry : properties.entrySet()) {
             String name = entry.getKey().toString();
             Object value = entry.getValue();
 
-            SetPropertyResult setterResult = new SetPropertyResult();
-            dynamicObject.setProperty(name, value, setterResult);
-            if (setterResult.isFound()) {
+            DynamicInvokeResult result = dynamicObject.trySetProperty(name, value);
+            if (result.isFound()) {
                 continue;
             }
 
-            InvokeMethodResult invokeResult = new InvokeMethodResult();
-            dynamicObject.invokeMethod(name, invokeResult, value);
-            if (!invokeResult.isFound()) {
+            result = dynamicObject.tryInvokeMethod(name, value);
+            if (!result.isFound()) {
                 throw dynamicObject.setMissingProperty(name);
             }
         }
@@ -126,7 +126,7 @@ public class ConfigureUtil {
     }
 
     /**
-     * Called from an object's {@link Configuable#configure} method.
+     * Called from an object's {@link Configurable#configure} method.
      */
     public static <T> T configureSelf(@Nullable Closure configureClosure, T target) {
         if (configureClosure == null) {
@@ -138,7 +138,7 @@ public class ConfigureUtil {
     }
 
     /**
-     * Called from an object's {@link Configuable#configure} method.
+     * Called from an object's {@link Configurable#configure} method.
      */
     public static <T> T configureSelf(@Nullable Closure configureClosure, T target, ConfigureDelegate closureDelegate) {
         if (configureClosure == null) {

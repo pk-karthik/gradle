@@ -25,7 +25,7 @@ import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.DefaultV
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.DefaultVersionSelectorScheme
 import org.gradle.api.specs.Specs
 import org.gradle.internal.component.external.model.DefaultModuleComponentIdentifier
-import org.gradle.internal.component.external.model.MutableModuleComponentResolveMetadata
+import org.gradle.internal.component.external.model.ModuleComponentResolveMetadata
 import org.gradle.internal.component.model.ComponentResolveMetadata
 import org.gradle.internal.component.model.DependencyMetadata
 import org.gradle.internal.resolve.ModuleVersionResolveException
@@ -140,7 +140,9 @@ class DefaultVersionedComponentChooserTest extends Specification {
         _ * b.id >> selected
         _ * c.version >> "2.0"
         1 * c.resolve() >> resolvedWithStatus("integration")
+        1 * c.getComponentMetadataSupplier()
         1 * b.resolve() >> resolvedWithStatus("milestone")
+        1 * b.getComponentMetadataSupplier()
         _ * componentSelectionRules.rules >> []
         0 * _
 
@@ -199,7 +201,9 @@ class DefaultVersionedComponentChooserTest extends Specification {
         _ * b.id >> selected
         _ * c.version >> "2.0"
         1 * c.resolve() >> resolvedWithStatus("milestone")
+        1 * c.getComponentMetadataSupplier()
         1 * b.resolve() >> resolvedWithStatus("release")
+        1 * b.getComponentMetadataSupplier()
         1 * componentSelectionRules.rules >> rules({ComponentSelection selection ->
             if (selection.candidate.version == '1.3') {
                 selection.reject("rejected")
@@ -254,8 +258,11 @@ class DefaultVersionedComponentChooserTest extends Specification {
         _ * b.version >> "1.3"
         _ * c.version >> "2.0"
         1 * a.resolve() >> resolvedWithStatus("integration")
+        1 * a.getComponentMetadataSupplier()
         1 * b.resolve() >> resolvedWithStatus("integration")
+        1 * b.getComponentMetadataSupplier()
         1 * c.resolve() >> resolvedWithStatus("integration")
+        1 * c.getComponentMetadataSupplier()
         _ * componentSelectionRules.rules >> []
         0 * _
 
@@ -310,7 +317,9 @@ class DefaultVersionedComponentChooserTest extends Specification {
         _ * b.version >> "1.3"
         _ * c.version >> "2.0"
         1 * c.resolve() >> resolvedWithStatus("integration")
+        1 * c.getComponentMetadataSupplier()
         1 * b.resolve() >> resolvedWithFailure()
+        1 * b.getComponentMetadataSupplier()
         _ * componentSelectionRules.rules >> []
         0 * _
 
@@ -319,7 +328,7 @@ class DefaultVersionedComponentChooserTest extends Specification {
     }
 
     def resolvedWithStatus(String status) {
-        def meta = Stub(MutableModuleComponentResolveMetadata) {
+        def meta = Stub(ModuleComponentResolveMetadata) {
             getStatusScheme() >> ["integration", "milestone", "release"]
             getStatus() >> status
         }

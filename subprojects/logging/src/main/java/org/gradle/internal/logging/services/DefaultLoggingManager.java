@@ -68,7 +68,10 @@ public class DefaultLoggingManager implements LoggingManagerInternal, Closeable 
             loggingOutput.addOutputEventListener(outputEventListener);
         }
         loggingRouter.start();
+
+        slf4jLoggingSystem.enableCapture();
         slf4jLoggingSystem.start();
+
         javaUtilLoggingSystem.start();
         stdOutLoggingSystem.start();
         stdErrLoggingSystem.start();
@@ -102,6 +105,7 @@ public class DefaultLoggingManager implements LoggingManagerInternal, Closeable 
     @Override
     public DefaultLoggingManager setLevelInternal(LogLevel logLevel) {
         slf4jLoggingSystem.setLevel(logLevel);
+        javaUtilLoggingSystem.setLevel(logLevel);
         loggingRouter.setLevel(logLevel);
         return this;
     }
@@ -111,10 +115,16 @@ public class DefaultLoggingManager implements LoggingManagerInternal, Closeable 
     }
 
     @Override
+    public DefaultLoggingManager setMaxWorkerCount(int maxWorkerCount) {
+        loggingRouter.setMaxWorkerCount(maxWorkerCount);
+        return this;
+    }
+
+    @Override
     public DefaultLoggingManager captureSystemSources() {
-        stdOutLoggingSystem.setLevel(LogLevel.QUIET);
-        stdErrLoggingSystem.setLevel(LogLevel.ERROR);
-        javaUtilLoggingSystem.setLevel(LogLevel.DEBUG);
+        stdOutLoggingSystem.enableCapture();
+        stdErrLoggingSystem.enableCapture();
+        javaUtilLoggingSystem.enableCapture();
         return this;
     }
 
@@ -195,6 +205,7 @@ public class DefaultLoggingManager implements LoggingManagerInternal, Closeable 
     private static class StartableLoggingRouter implements Stoppable {
         private final LoggingRouter loggingRouter;
         private LogLevel level;
+        private Integer maxWorkerCount;
         private LoggingSystem.Snapshot originalState;
         private ConsoleOutput consoleOutput;
         private OutputStream consoleOutputStream;
@@ -207,6 +218,9 @@ public class DefaultLoggingManager implements LoggingManagerInternal, Closeable 
             originalState = loggingRouter.snapshot();
             if (level != null) {
                 loggingRouter.configure(level);
+            }
+            if (maxWorkerCount != null) {
+                loggingRouter.configureMaxWorkerCount(maxWorkerCount.intValue());
             }
             if (consoleOutput != null) {
                 loggingRouter.attachProcessConsole(consoleOutput);
@@ -258,6 +272,18 @@ public class DefaultLoggingManager implements LoggingManagerInternal, Closeable 
             level = logLevel;
         }
 
+        public void setMaxWorkerCount(int maxWorkerCount) {
+            if (this.maxWorkerCount != null && this.maxWorkerCount == maxWorkerCount) {
+                return;
+            }
+
+            if (originalState != null) {
+                // Already started
+                loggingRouter.configureMaxWorkerCount(maxWorkerCount);
+            }
+            this.maxWorkerCount = Integer.valueOf(maxWorkerCount);
+        }
+
         @Override
         public void stop() {
             try {
@@ -272,6 +298,7 @@ public class DefaultLoggingManager implements LoggingManagerInternal, Closeable 
 
     private static class StartableLoggingSystem implements Stoppable {
         private final LoggingSourceSystem loggingSystem;
+        private boolean enabled;
         private LogLevel level;
         private LoggingSystem.Snapshot originalState;
 
@@ -280,33 +307,59 @@ public class DefaultLoggingManager implements LoggingManagerInternal, Closeable 
             this.level = level;
         }
 
+        /**
+         * Start this logging system: take a snapshot of the current state and start capturing events if enabled.
+         */
         public void start() {
+            originalState = loggingSystem.snapshot();
             if (level != null) {
-                originalState = loggingSystem.on(level, level);
-            } else {
-                originalState = loggingSystem.snapshot();
+                loggingSystem.setLevel(level);
+            }
+            if (enabled) {
+                loggingSystem.startCapture();
             }
         }
 
+        /**
+         * Start capturing events from this logging system. Does not take effect until started.
+         */
+        public void enableCapture() {
+            if (enabled) {
+                return;
+            }
+
+            enabled = true;
+            if (originalState != null) {
+                //started, enable
+                loggingSystem.startCapture();
+            }
+        }
+
+        /**
+         * Sets the logging level for this log system. Does not take effect until started .
+         */
         public void setLevel(LogLevel logLevel) {
             if (this.level == logLevel) {
                 return;
             }
 
             this.level = logLevel;
-            if (originalState == null) {
-                // Not started, don't apply the changes
-                return;
+            if (originalState != null) {
+                // started, update the log level
+                loggingSystem.setLevel(logLevel);
             }
-            loggingSystem.on(logLevel, logLevel);
         }
 
+        /**
+         * Stops this logging system. Restores state from when started.
+         */
         public void stop() {
             try {
                 if (originalState != null) {
                     loggingSystem.restore(originalState);
                 }
             } finally {
+                enabled = false;
                 originalState = null;
             }
         }

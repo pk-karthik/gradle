@@ -16,14 +16,16 @@
 
 package org.gradle.internal.reflect;
 
-import org.gradle.api.Transformer;
+import org.gradle.api.JavaVersion;
 import org.gradle.api.specs.Spec;
+import org.gradle.internal.Cast;
 import org.gradle.internal.Factory;
 import org.gradle.internal.UncheckedException;
 import org.gradle.util.CollectionUtils;
 
 import java.lang.annotation.Annotation;
 import java.lang.annotation.Inherited;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -39,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public class JavaReflectionUtil {
+
     private static final WeakHashMap<Class<?>, ConcurrentMap<String, Boolean>> PROPERTY_CACHE = new WeakHashMap<Class<?>, ConcurrentMap<String, Boolean>>();
 
     /**
@@ -86,8 +89,6 @@ public class JavaReflectionUtil {
 
     /**
      * Locates the field with the given name as a readable property.  Searches only public fields.
-     *
-     * @throws NoSuchPropertyException
      */
     public static <T, F> PropertyAccessor<T, F> readableField(Class<T> target, Class<F> fieldType, String fieldName) throws NoSuchPropertyException {
         Field field = findField(target, fieldName);
@@ -100,8 +101,6 @@ public class JavaReflectionUtil {
 
     /**
      * Locates the field with the given name as a readable property.  Searches only public fields.
-     *
-     * @throws NoSuchPropertyException
      */
     public static <T, F> PropertyAccessor<T, F> readableField(T target, Class<F> fieldType, String fieldName) throws NoSuchPropertyException {
         @SuppressWarnings("unchecked")
@@ -243,30 +242,8 @@ public class JavaReflectionUtil {
     /**
      * Locates the given method. Searches all methods, including private methods.
      */
-    public static <T, R> JavaMethod<T, R> method(Class<T> target, Class<R> returnType, Method method) throws NoSuchMethodException {
-        return new JavaMethod<T, R>(target, returnType, method);
-    }
-
-    /**
-     * Locates the given method. Searches all methods, including private methods.
-     */
-    public static <T, R> JavaMethod<T, R> method(T target, Class<R> returnType, Method method) throws NoSuchMethodException {
-        @SuppressWarnings("unchecked")
-        Class<T> targetClass = (Class<T>) target.getClass();
-        return new JavaMethod<T, R>(targetClass, returnType, method);
-    }
-
-    /**
-     * Search methods in an inheritance aware fashion, stopping when stopIndicator returns true.
-     */
-    public static void searchMethods(Class<?> target, final Transformer<Boolean, Method> stopIndicator) {
-        Spec<Method> stopIndicatorAsSpec = new Spec<Method>() {
-            public boolean isSatisfiedBy(Method element) {
-                return stopIndicator.transform(element);
-            }
-        };
-
-        findAllMethodsInternal(target, stopIndicatorAsSpec, new MultiMap<String, Method>(), new ArrayList<Method>(1), true);
+    public static <T, R> JavaMethod<T, R> method(Class<R> returnType, Method method) throws NoSuchMethodException {
+        return new JavaMethod<T, R>(returnType, method);
     }
 
     public static Method findMethod(Class<?> target, Spec<Method> predicate) {
@@ -304,6 +281,26 @@ public class JavaReflectionUtil {
         return true;
     }
 
+    public static <T> T newInstanceOrFallback(String jdk7Type, ClassLoader loader, Class<? extends T> fallbackType) {
+        // Use java 7 APIs, if available
+        Class<?> handlerClass = null;
+        if (JavaVersion.current().isJava7Compatible()) {
+            try {
+                handlerClass = loader.loadClass(jdk7Type);
+            } catch (ClassNotFoundException e) {
+                // Ignore
+            }
+        }
+        if (handlerClass == null) {
+            handlerClass = fallbackType;
+        }
+        try {
+            return Cast.uncheckedCast(handlerClass.newInstance());
+        } catch (Exception e) {
+            throw UncheckedException.throwAsUncheckedException(e);
+        }
+    }
+
     private static class MultiMap<K, V> extends HashMap<K, List<V>> {
         @Override
         public List<V> get(Object key) {
@@ -322,7 +319,7 @@ public class JavaReflectionUtil {
             Method override = CollectionUtils.findFirst(seenWithName, new Spec<Method>() {
                 public boolean isSatisfiedBy(Method potentionOverride) {
                     return potentionOverride.getName().equals(method.getName())
-                            && Arrays.equals(potentionOverride.getParameterTypes(), method.getParameterTypes());
+                        && Arrays.equals(potentionOverride.getParameterTypes(), method.getParameterTypes());
                 }
             });
 
@@ -530,6 +527,12 @@ public class JavaReflectionUtil {
 
         public T create() {
             return instantiator.newInstance(type, args);
+        }
+    }
+
+    public static class CachedConstructor extends ReflectionCache.CachedInvokable<Constructor<?>> {
+        public CachedConstructor(Constructor<?> ctor) {
+            super(ctor);
         }
     }
 }

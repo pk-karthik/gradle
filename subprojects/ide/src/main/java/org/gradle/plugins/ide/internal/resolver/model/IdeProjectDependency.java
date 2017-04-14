@@ -16,32 +16,37 @@
 
 package org.gradle.plugins.ide.internal.resolver.model;
 
-import org.gradle.api.Project;
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 
 public class IdeProjectDependency extends IdeDependency {
-    private final Project project;
     private final ProjectComponentIdentifier projectId;
+    private final String projectName;
 
-    public IdeProjectDependency(ProjectComponentIdentifier projectId, Project project) {
+    public IdeProjectDependency(ProjectComponentIdentifier projectId, String projectName) {
         this.projectId = projectId;
-        this.project = project;
+        this.projectName = projectName;
     }
 
     public IdeProjectDependency(ProjectComponentIdentifier projectId) {
-        this.project = null;
         this.projectId = projectId;
-    }
-
-    public Project getProject() {
-        return project;
+        this.projectName = determineProjectName(projectId);
     }
 
     public ProjectComponentIdentifier getProjectId() {
         return projectId;
     }
 
-    public String getProjectPath() {
-        return projectId.getProjectPath();
+    public String getProjectName() {
+        return projectName;
+    }
+
+    private static String determineProjectName(ProjectComponentIdentifier projectId) {
+        assert !projectId.getBuild().isCurrentBuild();
+        String projectPath = projectId.getProjectPath();
+        if (projectPath.equals(":")) {
+            return projectId.getBuild().getName();
+        }
+        int index = projectPath.lastIndexOf(':');
+        return projectPath.substring(index + 1);
     }
 }

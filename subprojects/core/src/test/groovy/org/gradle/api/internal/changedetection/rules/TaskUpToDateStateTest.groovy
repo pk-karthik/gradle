@@ -16,94 +16,47 @@
 
 package org.gradle.api.internal.changedetection.rules
 
-import org.gradle.api.UncheckedIOException
-import org.gradle.api.internal.TaskInputsInternal
-import org.gradle.api.internal.TaskInternal
-import org.gradle.api.internal.TaskOutputsInternal
 import org.gradle.api.internal.changedetection.state.FileCollectionSnapshot
 import org.gradle.api.internal.changedetection.state.FileCollectionSnapshotter
-import org.gradle.api.internal.changedetection.state.FilesSnapshotSet
-import org.gradle.api.internal.changedetection.state.OutputFilesCollectionSnapshotter
+import org.gradle.api.internal.changedetection.state.FileCollectionSnapshotterRegistry
+import org.gradle.api.internal.changedetection.state.GenericFileCollectionSnapshotter
+import org.gradle.api.internal.changedetection.state.OutputFilesSnapshotter
 import org.gradle.api.internal.changedetection.state.TaskHistoryRepository
+import org.gradle.api.internal.changedetection.state.ValueSnapshotter
 import org.gradle.api.internal.file.FileCollectionFactory
 import org.gradle.internal.classloader.ClassLoaderHierarchyHasher
-import spock.lang.Issue
-import spock.lang.Specification
+import spock.lang.Subject
 
-class TaskUpToDateStateTest extends Specification {
-    private TaskInternal stubTask
+@Subject(TaskUpToDateState)
+class TaskUpToDateStateTest extends AbstractTaskStateChangesTest {
     private TaskHistoryRepository.History stubHistory
-    private OutputFilesCollectionSnapshotter stubOutputFileSnapshotter
+    private OutputFilesSnapshotter stubOutputFileSnapshotter
     private FileCollectionSnapshotter stubInputFileSnapshotter
-    private FileCollectionSnapshotter stubDiscoveredInputFileSnapshotter
     private FileCollectionFactory fileCollectionFactory = Mock(FileCollectionFactory)
     private classLoaderHierarchyHasher = Mock(ClassLoaderHierarchyHasher)
 
     def setup() {
-        def stubInputs = Stub(TaskInputsInternal)
-        def stubOutputs = Stub(TaskOutputsInternal)
-        this.stubTask = Stub(TaskInternal) {
-            _ * getName() >> { "testTask" }
-            _ * getInputs() >> stubInputs
-            _ * getOutputs() >> stubOutputs
-        }
         this.stubHistory = Stub(TaskHistoryRepository.History)
-        this.stubOutputFileSnapshotter = Stub(OutputFilesCollectionSnapshotter)
+        this.stubOutputFileSnapshotter = Stub(OutputFilesSnapshotter)
         this.stubInputFileSnapshotter = Stub(FileCollectionSnapshotter)
-        this.stubDiscoveredInputFileSnapshotter = Stub(FileCollectionSnapshotter)
     }
 
     def "constructor invokes snapshots" () {
         setup:
-        FileCollectionSnapshot stubSnapshot = Stub(FileCollectionSnapshot) {
-            _ * getSnapshot() >> Stub(FilesSnapshotSet)
-        }
-        OutputFilesCollectionSnapshotter mockOutputFileSnapshotter = Mock(OutputFilesCollectionSnapshotter)
-        FileCollectionSnapshotter mockInputFileSnapshotter = Mock(FileCollectionSnapshotter)
-        FileCollectionSnapshotter mockDiscoveredInputFileSnapshotter = Mock(FileCollectionSnapshotter)
-        FileCollectionSnapshot.PreCheck inputPreCheck = Mock(FileCollectionSnapshot.PreCheck)
-        FileCollectionSnapshot.PreCheck outputPreCheck = Mock(FileCollectionSnapshot.PreCheck)
+        def stubSnapshot = Stub(FileCollectionSnapshot)
+        def mockOutputFileSnapshotter = Mock(OutputFilesSnapshotter)
+        def mockInputFileSnapshotter = Mock(FileCollectionSnapshotter)
+        def mockInputFileSnapshotterRegistry = Mock(FileCollectionSnapshotterRegistry)
 
         when:
-        new TaskUpToDateState(stubTask, stubHistory, mockOutputFileSnapshotter, mockInputFileSnapshotter, mockDiscoveredInputFileSnapshotter, fileCollectionFactory, classLoaderHierarchyHasher)
+        new TaskUpToDateState(stubTask, stubHistory, mockOutputFileSnapshotter, mockInputFileSnapshotterRegistry, fileCollectionFactory, classLoaderHierarchyHasher, new ValueSnapshotter())
 
         then:
         noExceptionThrown()
-        1 * mockOutputFileSnapshotter.preCheck(_, _) >> outputPreCheck
-        1 * mockInputFileSnapshotter.preCheck(_, _) >> inputPreCheck
-    }
-
-    @Issue("https://issues.gradle.org/browse/GRADLE-2967")
-    def "constructor adds context when input snapshot throws UncheckedIOException" () {
-        setup:
-        def cause = new UncheckedIOException("thrown from stub")
-        _ * stubInputFileSnapshotter.preCheck(_, _) >> { throw cause }
-
-        when:
-        new TaskUpToDateState(stubTask, stubHistory, stubOutputFileSnapshotter, stubInputFileSnapshotter, stubDiscoveredInputFileSnapshotter, fileCollectionFactory, classLoaderHierarchyHasher)
-
-        then:
-        def e = thrown(UncheckedIOException)
-        e.message.contains(stubTask.getName())
-        e.message.contains("up-to-date")
-        e.message.contains("input")
-        e.cause == cause
-    }
-
-    @Issue("https://issues.gradle.org/browse/GRADLE-2967")
-    def "constructor adds context when output snapshot throws UncheckedIOException" () {
-        setup:
-        def cause = new UncheckedIOException("thrown from stub")
-         _ * stubOutputFileSnapshotter.preCheck(_, _) >> { throw cause }
-
-        when:
-        new TaskUpToDateState(stubTask, stubHistory, stubOutputFileSnapshotter, stubInputFileSnapshotter, stubDiscoveredInputFileSnapshotter, fileCollectionFactory, classLoaderHierarchyHasher)
-
-        then:
-        def e = thrown(UncheckedIOException)
-        e.message.contains(stubTask.getName())
-        e.message.contains("up-to-date")
-        e.message.contains("output")
-        e.cause == cause
+        1 * mockInputs.getProperties() >> [:]
+        1 * mockInputs.getFileProperties() >> fileProperties(prop: "a")
+        1 * mockOutputs.getFileProperties() >> fileProperties(out: "b")
+        (1.._) * mockInputFileSnapshotterRegistry.getSnapshotter(GenericFileCollectionSnapshotter) >> mockInputFileSnapshotter
+        (1.._) * mockInputFileSnapshotter.snapshot(_, _, _) >> stubSnapshot
     }
 }

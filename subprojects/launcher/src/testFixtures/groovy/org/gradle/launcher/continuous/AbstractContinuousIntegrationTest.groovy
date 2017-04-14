@@ -19,9 +19,17 @@ package org.gradle.launcher.continuous
 import com.google.common.util.concurrent.SimpleTimeLimiter
 import com.google.common.util.concurrent.UncheckedTimeoutException
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.executer.*
+import org.gradle.integtests.fixtures.RetryRuleUtil
+import org.gradle.integtests.fixtures.executer.ExecutionFailure
+import org.gradle.integtests.fixtures.executer.ExecutionResult
+import org.gradle.integtests.fixtures.executer.GradleHandle
+import org.gradle.integtests.fixtures.executer.OutputScrapingExecutionFailure
+import org.gradle.integtests.fixtures.executer.OutputScrapingExecutionResult
+import org.gradle.integtests.fixtures.executer.UnexpectedBuildFailure
 import org.gradle.internal.os.OperatingSystem
 import org.gradle.test.fixtures.ConcurrentTestUtil
+import org.gradle.testing.internal.util.RetryRule
+import org.junit.Rule
 
 import java.util.concurrent.TimeUnit
 
@@ -33,6 +41,9 @@ abstract class AbstractContinuousIntegrationTest extends AbstractIntegrationSpec
     private static final boolean OS_IS_WINDOWS = OperatingSystem.current().isWindows()
     private static final String CHANGE_DETECTED_OUTPUT = "Change detected, executing build..."
     private static final String WAITING_FOR_CHANGES_OUTPUT = "Waiting for changes to input files of tasks..."
+
+    @Rule
+    RetryRule timeoutRetryRule = RetryRuleUtil.retryContinuousBuildSpecificationOnTimeout(this)
 
     GradleHandle gradle
 
@@ -46,7 +57,7 @@ abstract class AbstractContinuousIntegrationTest extends AbstractIntegrationSpec
     List<ExecutionResult> results = []
 
     public void turnOnDebug() {
-        executer.withDebug(true)
+        executer.startBuildProcessInDebugger(true)
         executer.withArgument("--no-daemon")
         buildTimeout *= 100
         shutdownTimeout *= 100
@@ -70,7 +81,7 @@ abstract class AbstractContinuousIntegrationTest extends AbstractIntegrationSpec
                 gradle.buildFinished {
                     long sinceStart = (System.nanoTime() - startAt) / 1000000L
                     if (sinceStart > 0 && sinceStart < $minimumBuildTimeMillis) {
-                      sleep($minimumBuildTimeMillis - sinceStart)
+                      Thread.sleep(($minimumBuildTimeMillis - sinceStart) as Long)
                     }
                 }
             """
@@ -80,6 +91,17 @@ abstract class AbstractContinuousIntegrationTest extends AbstractIntegrationSpec
 
     protected int getMinimumBuildTimeMillis() {
         2000
+    }
+
+    def waitAtEndOfBuildForQuietPeriod(def quietPeriodMillis) {
+        // Make sure the build lasts long enough for events to propagate
+        // Needs to be longer than the quiet period configured
+        int sleepPeriod = quietPeriodMillis * 2
+        buildFile << """
+            gradle.buildFinished {
+                Thread.sleep(${sleepPeriod})
+            }
+        """
     }
 
     @Override

@@ -45,6 +45,7 @@ public class JavaVersionSpec extends Specification {
 
     def convertsStringToVersion() {
         expect:
+        JavaVersion.toVersion("1.1") == JavaVersion.VERSION_1_1
         JavaVersion.toVersion("1.3") == JavaVersion.VERSION_1_3
         JavaVersion.toVersion("1.5") == JavaVersion.VERSION_1_5
         JavaVersion.toVersion("1.5.4") == JavaVersion.VERSION_1_5
@@ -64,6 +65,10 @@ public class JavaVersionSpec extends Specification {
 
     def convertClassVersionToJavaVersion() {
         expect:
+        JavaVersion.forClassVersion(45) == JavaVersion.VERSION_1_1
+        JavaVersion.forClassVersion(46) == JavaVersion.VERSION_1_2
+        JavaVersion.forClassVersion(47) == JavaVersion.VERSION_1_3
+        JavaVersion.forClassVersion(48) == JavaVersion.VERSION_1_4
         JavaVersion.forClassVersion(49) == JavaVersion.VERSION_1_5
         JavaVersion.forClassVersion(50) == JavaVersion.VERSION_1_6
         JavaVersion.forClassVersion(51) == JavaVersion.VERSION_1_7
@@ -209,7 +214,7 @@ public class JavaVersionSpec extends Specification {
     }
 
     def "uses system property to determine if compatible with Java 9"() {
-        System.properties['java.version'] = '1.9'
+        System.properties['java.version'] = javaVersion
 
         expect:
         !JavaVersion.current().java5
@@ -224,5 +229,8 @@ public class JavaVersionSpec extends Specification {
         JavaVersion.current().java7Compatible
         JavaVersion.current().java8Compatible
         JavaVersion.current().java9Compatible
+
+        where:
+        javaVersion << ['1.9', '9-ea']
     }
 }

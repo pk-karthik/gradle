@@ -16,6 +16,7 @@
 
 package org.gradle.launcher
 
+import groovy.transform.NotYetImplemented
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.executer.ExecutionResult
 import spock.lang.Issue
@@ -32,8 +33,10 @@ class BuildEnvironmentIntegrationTest extends AbstractIntegrationSpec {
 
         and:
         buildFile.setText("""
-task check << {
-    assert Locale.getDefault().toString() == "${locale}"
+task check {
+    doLast {
+        assert Locale.getDefault().toString() == "${locale}"
+    }
 }
 """, "UTF-8")
 
@@ -53,8 +56,10 @@ task check << {
 
         and:
         buildFile.setText("""
-task check << {
-    assert Locale.getDefault().toString() == "${nonDefaultLocale}"
+task check {
+    doLast {
+        assert Locale.getDefault().toString() == "${nonDefaultLocale}"
+    }
 }
 """, "UTF-8")
 
@@ -70,8 +75,10 @@ task check << {
 
         and:
         buildFile.setText("""
-task check << {
-    assert Locale.getDefault().toString() == "${nonDefaultLocale}"
+task check {
+    doLast {
+        assert Locale.getDefault().toString() == "${nonDefaultLocale}"
+    }
 }
 """, "UTF-8")
 
@@ -88,8 +95,10 @@ task check << {
 
         and:
         buildFile.setText("""
-task check << {
-    assert ${Charset.class.name}.defaultCharset().name() == "${nonDefaultEncoding}"
+task check {
+    doLast {
+        assert ${Charset.class.name}.defaultCharset().name() == "${nonDefaultEncoding}"
+    }
 }
 """, "UTF-8")
 
@@ -107,13 +116,19 @@ task check << {
 
         and:
         buildFile.setText("""
-task check << {
-    assert ${Charset.class.name}.defaultCharset().name() == "${nonDefaultEncoding}"
+task check {
+    doLast {
+        assert ${Charset.class.name}.defaultCharset().name() == "${nonDefaultEncoding}"
+    }
 }
 """, "UTF-8")
 
         expect:
         succeeds 'check'
+    }
+
+    Locale getTurkishLocale() {
+        new Locale("tr", "TR")
     }
 
     Locale getNonDefaultLocale() {
@@ -197,7 +212,36 @@ task check << {
 
     @Override
     protected ExecutionResult succeeds(String... tasks) {
-        executer.useDefaultBuildJvmArgs()
+        executer.useOnlyRequestedJvmOpts()
         return super.succeeds(tasks)
+    }
+
+    @Issue("GRADLE-3470")
+    def "command-line options are not affected by locale"() {
+        given:
+        executer.withCommandLineGradleOpts("-Duser.language=${turkishLocale.language}", "-Duser.country=${turkishLocale.country}")
+        expect:
+        succeeds 'help', '--console=PLAIN'
+    }
+
+    @Issue("https://github.com/gradle/gradle/issues/1001")
+    @NotYetImplemented
+    def "system properties from gradle.properties are available to init scripts for buildSrc"() {
+        given:
+        executer.requireOwnGradleUserHomeDir()
+        executer.gradleUserHomeDir.file("init.gradle") << """
+            println 'running init script'
+            assert System.getProperty('foo') == 'bar'
+        """
+        executer.gradleUserHomeDir.file("gradle.properties") << "systemProp.foo=bar"
+        // Add something to buildSrc to have it evaluated
+        file("buildSrc/settings.gradle") << """
+            assert System.getProperty('foo') == 'bar'
+            rootProject.name = 'myBuildSrc'
+        """
+        executer.requireGradleDistribution()
+
+        expect:
+        succeeds 'help'
     }
 }

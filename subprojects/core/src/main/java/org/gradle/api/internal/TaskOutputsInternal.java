@@ -16,16 +16,32 @@
 
 package org.gradle.api.internal;
 
+import com.google.common.collect.ImmutableSortedSet;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.internal.tasks.TaskOutputFilePropertySpec;
 import org.gradle.api.specs.Spec;
 import org.gradle.api.tasks.TaskOutputs;
 
 public interface TaskOutputsInternal extends TaskOutputs {
+
     Spec<? super TaskInternal> getUpToDateSpec();
 
-    FileCollection getPreviousFiles();
+    ImmutableSortedSet<TaskOutputFilePropertySpec> getFileProperties();
+
+    /**
+     * Returns the output files recorded during the previous execution of the task.
+     */
+    FileCollection getPreviousOutputFiles();
 
     void setHistory(TaskExecutionHistory history);
 
-    void ensureConfigured();
+    /**
+     * Yields information about the cacheability of the outputs.
+     */
+    TaskOutputCachingState getCachingState();
+
+    /**
+     * Returns whether the task has declared any outputs.
+     */
+    boolean hasDeclaredOutputs();
 }

@@ -17,23 +17,29 @@ package org.gradle.testfixtures.internal;
 
 import com.google.common.collect.Maps;
 import org.gradle.api.Action;
-import org.gradle.cache.*;
+import org.gradle.api.Nullable;
+import org.gradle.cache.CacheBuilder;
+import org.gradle.cache.CacheOpenException;
+import org.gradle.cache.CacheValidator;
+import org.gradle.cache.PersistentCache;
+import org.gradle.cache.PersistentIndexedCache;
+import org.gradle.cache.PersistentIndexedCacheParameters;
 import org.gradle.cache.internal.CacheFactory;
 import org.gradle.cache.internal.filelock.LockOptions;
+import org.gradle.internal.Cast;
 import org.gradle.internal.Factory;
+import org.gradle.internal.Pair;
 import org.gradle.internal.serialize.Serializer;
 import org.gradle.util.GFileUtils;
 
 import java.io.File;
-import java.util.Collections;
 import java.util.Map;
 
 public class InMemoryCacheFactory implements CacheFactory {
-    public PersistentCache openStore(File storeDir, String displayName, LockOptions lockOptions, Action<? super PersistentCache> initializer) throws CacheOpenException {
-        return open(storeDir, displayName, null, Collections.<String, Object>emptyMap(), lockOptions, initializer);
-    }
+    final Map<Pair<File, String>, PersistentIndexedCache<?, ?>> caches = Maps.newLinkedHashMap();
 
-    public PersistentCache open(File cacheDir, String displayName, CacheValidator cacheValidator, Map<String, ?> properties, LockOptions lockOptions, Action<? super PersistentCache> initializer) {
+    @Override
+    public PersistentCache open(File cacheDir, String displayName, @Nullable CacheValidator cacheValidator, Map<String, ?> properties, CacheBuilder.LockTarget lockTarget, LockOptions lockOptions, Action<? super PersistentCache> initializer) throws CacheOpenException {
         GFileUtils.mkdirs(cacheDir);
         InMemoryCache cache = new InMemoryCache(cacheDir);
         if (initializer != null) {
@@ -42,14 +48,11 @@ public class InMemoryCacheFactory implements CacheFactory {
         return cache;
     }
 
-    public <K, V> PersistentIndexedCache<K, V> openIndexedCache(File cacheDir, CacheValidator validator, Map<String, ?> properties, LockOptions lockOptions, Serializer<V> serializer) {
-        return new InMemoryIndexedCache<K, V>(serializer);
+    public PersistentCache open(File cacheDir, String displayName) {
+        return new InMemoryCache(cacheDir);
     }
 
-    public static class InMemoryCache implements PersistentCache {
-
-        final Map<String, PersistentIndexedCache<?, ?>> caches = Maps.newLinkedHashMap();
-
+    private class InMemoryCache implements PersistentCache {
         private final File cacheDir;
         private boolean closed;
 
@@ -57,6 +60,7 @@ public class InMemoryCacheFactory implements CacheFactory {
             this.cacheDir = cacheDir;
         }
 
+        @Override
         public void close() {
             closed = true;
         }
@@ -65,6 +69,7 @@ public class InMemoryCacheFactory implements CacheFactory {
             return closed;
         }
 
+        @Override
         public File getBaseDir() {
             return cacheDir;
         }
@@ -75,11 +80,13 @@ public class InMemoryCacheFactory implements CacheFactory {
             }
         }
 
+        @Override
         public <K, V> PersistentIndexedCache<K, V> createCache(String name, Class<K> keyType, Serializer<V> valueSerializer) {
             assertNotClosed();
             return createCache(name, valueSerializer);
         }
 
+        @Override
         public <K, V> PersistentIndexedCache<K, V> createCache(PersistentIndexedCacheParameters<K, V> parameters) {
             assertNotClosed();
             return createCache(parameters.getCacheName(), parameters.getValueSerializer());
@@ -87,12 +94,21 @@ public class InMemoryCacheFactory implements CacheFactory {
 
         private <K, V> PersistentIndexedCache<K, V> createCache(String name, Serializer<V> valueSerializer) {
             assertNotClosed();
-            InMemoryIndexedCache<K, V> cache = new InMemoryIndexedCache<K, V>(valueSerializer);
-            caches.put(name, cache);
-            return cache;
+            PersistentIndexedCache<?, ?> indexedCache = caches.get(Pair.of(cacheDir, name));
+            if (indexedCache == null) {
+                indexedCache = new InMemoryIndexedCache<K, V>(valueSerializer);
+                caches.put(Pair.of(cacheDir, name), indexedCache);
+            }
+            return Cast.uncheckedCast(indexedCache);
         }
 
-        public <T> T useCache(String operationDisplayName, Factory<? extends T> action) {
+        @Override
+        public <T> T withFileLock(Factory<? extends T> action) {
+            return action.create();
+        }
+
+        @Override
+        public <T> T useCache(Factory<? extends T> action) {
             assertNotClosed();
             // The contract of useCache() means we have to provide some basic synchronization.
             synchronized (this) {
@@ -100,19 +116,11 @@ public class InMemoryCacheFactory implements CacheFactory {
             }
         }
 
-        public void useCache(String operationDisplayName, Runnable action) {
+        @Override
+        public void useCache(Runnable action) {
             assertNotClosed();
             action.run();
         }
 
-        public <T> T longRunningOperation(String operationDisplayName, Factory<? extends T> action) {
-            assertNotClosed();
-            return action.create();
-        }
-
-        public void longRunningOperation(String operationDisplayName, Runnable action) {
-            assertNotClosed();
-            action.run();
-        }
     }
 }

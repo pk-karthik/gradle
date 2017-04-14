@@ -49,6 +49,25 @@ class JvmTest extends Specification {
         JavaVersion.resetCurrent()
     }
 
+    def assertJreHomeIfNotJava9(Jvm jvm, TestFile softwareRoot, String jreHome) {
+        assertJreHomeIfNotJava9(jvm, softwareRoot, jreHome, false /* alsoStandaloneJreHome */)
+    }
+
+    def assertJreHomeIfNotJava9(Jvm jvm, TestFile softwareRoot, String jreHome, boolean alsoStandaloneJreHome) {
+        if (jvm.javaVersion.isJava9Compatible()) {
+            assert jvm.jre == null
+            if (alsoStandaloneJreHome) {
+                assert jvm.standaloneJre == null
+            }
+        } else {
+            assert jvm.jre.homeDir == softwareRoot.file(jreHome)
+            if (alsoStandaloneJreHome) {
+                assert jvm.standaloneJre.homeDir == softwareRoot.file(jreHome)
+            }
+        }
+        return true
+    }
+
     def "uses system property to determine if Java 5/6/7"() {
         System.properties['java.version'] = "1.$version" as String
 
@@ -93,7 +112,7 @@ class JvmTest extends Specification {
         jvm.javaExecutable == software.file('jdk/bin/java.exe')
         jvm.javacExecutable == software.file('jdk/bin/javac.exe')
         jvm.javadocExecutable == software.file('jdk/bin/javadoc.exe')
-        jvm.jre.homeDir == software.file('jdk/jre')
+        assertJreHomeIfNotJava9(jvm, software, 'jdk/jre')
         jvm.standaloneJre == null
     }
 
@@ -117,17 +136,14 @@ class JvmTest extends Specification {
             }
         }
 
-        when:
-        System.properties['java.home'] = software.file('jdk/jre').absolutePath
-
-        then:
+        expect:
         def jvm = new Jvm(os, software.file('jdk/jre'), JavaVersion.current());
         jvm.javaHome == software.file('jdk')
         jvm.toolsJar == software.file('jdk/lib/tools.jar')
         jvm.javaExecutable == software.file('jdk/bin/java.exe')
         jvm.javacExecutable == software.file('jdk/bin/javac.exe')
         jvm.javadocExecutable == software.file('jdk/bin/javadoc.exe')
-        jvm.jre.homeDir == software.file('jdk/jre')
+        assertJreHomeIfNotJava9(jvm, software, 'jdk/jre')
         jvm.standaloneJre == null
     }
 
@@ -183,8 +199,7 @@ class JvmTest extends Specification {
         jvm.javaExecutable == software.file('jre/bin/java.exe')
         jvm.javacExecutable == new File('javac.exe')
         jvm.javadocExecutable == new File('javadoc.exe')
-        jvm.jre.homeDir == software.file('jre')
-        jvm.standaloneJre.homeDir == software.file('jre')
+        assertJreHomeIfNotJava9(jvm, software, 'jre', true /* alsoStandaloneJreHome */)
     }
 
     def "locates JDK and JRE installs when java.home points to a typical standalone JRE installation on Windows"() {

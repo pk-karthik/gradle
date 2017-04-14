@@ -17,9 +17,14 @@
 package org.gradle.api.initialization;
 
 import org.gradle.StartParameter;
+import org.gradle.api.Action;
+import org.gradle.api.Incubating;
 import org.gradle.api.UnknownProjectException;
 import org.gradle.api.invocation.Gradle;
 import org.gradle.api.plugins.PluginAware;
+import org.gradle.caching.configuration.BuildCacheConfiguration;
+import org.gradle.internal.HasInternalProtocol;
+import org.gradle.plugin.management.PluginManagementSpec;
 
 import java.io.File;
 
@@ -61,6 +66,7 @@ import java.io.File;
  *
  * </ul>
  */
+@HasInternalProtocol
 public interface Settings extends PluginAware {
     /**
      * <p>The default name for the settings file.</p>
@@ -168,8 +174,55 @@ public interface Settings extends PluginAware {
 
     /**
      * Returns the {@link Gradle} instance for the current build.
-     * 
+     *
      * @return The Gradle instance. Never returns null.
      */
     Gradle getGradle();
+
+    /**
+     * Includes a build at the specified path to the composite build.
+     * @param rootProject The path to the root project directory for the build.
+     */
+    @Incubating
+    void includeBuild(Object rootProject);
+
+    /**
+     * Includes a build at the specified path to the composite build, with the supplied configuration.
+     * @param rootProject The path to the root project directory for the build.
+     * @param configuration An action to configure the included build.
+     */
+    @Incubating
+    void includeBuild(Object rootProject, Action<ConfigurableIncludedBuild> configuration);
+
+    /**
+     * Returns the build cache configuration.
+     *
+     * @since 3.5
+     */
+    @Incubating
+    BuildCacheConfiguration getBuildCache();
+
+    /**
+     * Configures build cache.
+     *
+     * @since 3.5
+     */
+    @Incubating
+    void buildCache(Action<? super BuildCacheConfiguration> action);
+
+    /**
+     * Configures plugin management.
+     *
+     * @since 3.5
+     */
+    @Incubating
+    void pluginManagement(Action<? super PluginManagementSpec> pluginManagementSpec);
+
+    /**
+     * Returns the plugin management configuration.
+     *
+     * @since 3.5
+     */
+    @Incubating
+    PluginManagementSpec getPluginManagement();
 }

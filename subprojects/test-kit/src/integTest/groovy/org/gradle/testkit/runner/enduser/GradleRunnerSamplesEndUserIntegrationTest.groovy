@@ -19,6 +19,7 @@ package org.gradle.testkit.runner.enduser
 
 import org.gradle.integtests.fixtures.Sample
 import org.gradle.integtests.fixtures.UsesSample
+import org.gradle.testing.internal.util.RetryUtil
 import org.gradle.testkit.runner.fixtures.NoDebug
 import org.gradle.testkit.runner.fixtures.NonCrossVersion
 import org.gradle.util.Requires
@@ -47,6 +48,7 @@ class GradleRunnerSamplesEndUserIntegrationTest extends BaseTestKitEndUserIntegr
     }
 
     @UsesSample("testKit/gradleRunner/manualClasspathInjection")
+    @Requires(TestPrecondition.JDK8_OR_EARLIER) // Uses Gradle 2.8 which does not support Java 9
     def manualClasspathInjection() {
         expect:
         executer.inDirectory(sample.dir)
@@ -67,11 +69,14 @@ class GradleRunnerSamplesEndUserIntegrationTest extends BaseTestKitEndUserIntegr
         succeeds "check"
     }
 
-    @Requires([TestPrecondition.ONLINE, TestPrecondition.JDK8_OR_EARLIER])
+    @Requires([TestPrecondition.ONLINE, TestPrecondition.JDK8_OR_EARLIER]) // Uses Gradle 2.6 which does not support Java 9
     @UsesSample("testKit/gradleRunner/gradleVersion")
     def gradleVersion() {
         expect:
-        executer.inDirectory(sample.dir)
-        succeeds "check"
+        RetryUtil.retry { //This test is also affected by gradle/gradle#1111 on Windows
+            executer.inDirectory(sample.dir)
+            succeeds "check"
+
+        }
     }
 }

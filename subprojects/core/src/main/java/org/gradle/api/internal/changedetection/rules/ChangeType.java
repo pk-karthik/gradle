@@ -16,14 +16,14 @@
 
 package org.gradle.api.internal.changedetection.rules;
 
-enum ChangeType {
+public enum ChangeType {
     ADDED("has been added"),
     MODIFIED("has changed"),
     REMOVED("has been removed");
 
     private final String description;
 
-    private ChangeType(String description) {
+    ChangeType(String description) {
         this.description = description;
     }
 

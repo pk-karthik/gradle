@@ -17,9 +17,11 @@
 package org.gradle.testing.jacoco.plugins;
 
 import com.google.common.base.Joiner;
+import org.apache.commons.lang.StringUtils;
 import org.gradle.api.Incubating;
-import org.gradle.api.internal.ConventionMapping;
-import org.gradle.api.internal.IConventionAware;
+import org.gradle.api.Project;
+import org.gradle.api.provider.PropertyState;
+import org.gradle.api.provider.Provider;
 import org.gradle.internal.jacoco.JacocoAgentJar;
 import org.gradle.process.JavaForkOptions;
 import org.gradle.util.GFileUtils;
@@ -52,11 +54,11 @@ public class JacocoTaskExtension {
         }
     }
 
-    private JacocoAgentJar agent;
+    private final JacocoAgentJar agent;
     private final JavaForkOptions task;
 
     private boolean enabled = true;
-    private File destinationFile;
+    private final PropertyState<File> destinationFile;
     private boolean append = true;
     private List<String> includes = new ArrayList<String>();
     private List<String> excludes = new ArrayList<String>();
@@ -66,29 +68,27 @@ public class JacocoTaskExtension {
     private boolean dumpOnExit = true;
     private Output output = Output.FILE;
     private String address;
-    private Integer port;
-    private File classDumpFile;
+    private int port;
+    private File classDumpDir;
     private boolean jmx;
 
     /**
      * Creates a Jacoco task extension.
      *
+     * @param project the project
      * @param agent the agent JAR to use for analysis
      * @param task the task we extend
      */
-    public JacocoTaskExtension(JacocoAgentJar agent, JavaForkOptions task) {
+    public JacocoTaskExtension(Project project, JacocoAgentJar agent, JavaForkOptions task) {
         this.agent = agent;
         this.task = task;
-    }
-
-    public boolean isEnabled() {
-        return enabled;
+        destinationFile = project.property(File.class);
     }
 
     /**
      * Whether or not the task should generate execution data. Defaults to {@code true}.
      */
-    public boolean getEnabled() {
+    public boolean isEnabled() {
         return enabled;
     }
 
@@ -100,21 +100,21 @@ public class JacocoTaskExtension {
      * The path for the execution data to be written to.
      */
     public File getDestinationFile() {
-        return destinationFile;
+        return destinationFile.getOrNull();
+    }
+
+    public void setDestinationFile(Provider<File> destinationFile) {
+        this.destinationFile.set(destinationFile);
     }
 
     public void setDestinationFile(File destinationFile) {
-        this.destinationFile = destinationFile;
-    }
-
-    public boolean isAppend() {
-        return append;
+        this.destinationFile.set(destinationFile);
     }
 
     /**
      * Whether or not data should be appended if the {@code destinationFile} already exists. Defaults to {@code true}.
      */
-    public boolean getAppend() {
+    public boolean isAppend() {
         return append;
     }
 
@@ -155,16 +155,12 @@ public class JacocoTaskExtension {
         this.excludeClassLoaders = excludeClassLoaders;
     }
 
-    public boolean isIncludeNoLocationClasses() {
-        return includeNoLocationClasses;
-    }
-
     /**
      * Whether or not classes without source location should be instrumented. Defaults to {@code false}.
      *
      * This property is only taken into account if the used JaCoCo version supports this option (JaCoCo version >= 0.7.6)
      */
-    public boolean getIncludeNoLocationClasses() {
+    public boolean isIncludeNoLocationClasses() {
         return includeNoLocationClasses;
     }
 
@@ -183,14 +179,10 @@ public class JacocoTaskExtension {
         this.sessionId = sessionId;
     }
 
-    public boolean isDumpOnExit() {
-        return dumpOnExit;
-    }
-
     /**
      * Whether or not to dump the coverage data at VM shutdown. Defaults to {@code true}.
      */
-    public boolean getDumpOnExit() {
+    public boolean isDumpOnExit() {
         return dumpOnExit;
     }
 
@@ -233,17 +225,20 @@ public class JacocoTaskExtension {
 
     /**
      * Path to dump all class files the agent sees are dumped to. Defaults to no dumps.
+     *
+     * @since 3.4
      */
-    public File getClassDumpFile() {
-        return classDumpFile;
+    public File getClassDumpDir() {
+        return classDumpDir;
     }
 
-    public void setClassDumpFile(File classDumpFile) {
-        this.classDumpFile = classDumpFile;
-    }
-
-    public boolean isJmx() {
-        return jmx;
+    /**
+     * Sets path to dump all class files the agent sees are dumped to. Defaults to no dumps.
+     *
+     * @since 3.4
+     */
+    public void setClassDumpDir(File classDumpDir) {
+        this.classDumpDir = classDumpDir;
     }
 
     /**
@@ -251,30 +246,12 @@ public class JacocoTaskExtension {
      *
      * The configuration of the jmx property is only taken into account if the used JaCoCo version supports this option (JaCoCo version >= 0.6.2)
      */
-    public boolean getJmx() {
+    public boolean isJmx() {
         return jmx;
     }
 
     public void setJmx(boolean jmx) {
         this.jmx = jmx;
-    }
-
-    /**
-     * agent
-     * @deprecated Agent should be considered final.
-     */
-    @Deprecated
-    public JacocoAgentJar getAgent() {
-        return agent;
-    }
-
-    /**
-     * agent
-     * @deprecated Agent should be considered final.
-     */
-    @Deprecated
-    public void setAgent(JacocoAgentJar agent) {
-        this.agent = agent;
     }
 
     /**
@@ -285,49 +262,29 @@ public class JacocoTaskExtension {
     public String getAsJvmArg() {
         StringBuilder builder = new StringBuilder();
         ArgumentAppender argument = new ArgumentAppender(builder, task.getWorkingDir());
-        ConventionValueSupplier convention = new ConventionValueSupplier(this);
         builder.append("-javaagent:");
         builder.append(GFileUtils.relativePath(task.getWorkingDir(), agent.getJar()));
         builder.append('=');
-        argument.append("destfile", convention.get(destinationFile, "destinationFile"));
-        argument.append("append", convention.get(append, "append"));
-        argument.append("includes", convention.get(includes, "includes"));
-        argument.append("excludes", convention.get(excludes, "excludes"));
-        argument.append("exclclassloader", convention.get(excludeClassLoaders, "excludeClassLoaders"));
+        argument.append("destfile", getDestinationFile());
+        argument.append("append", isAppend());
+        argument.append("includes", getIncludes());
+        argument.append("excludes", getExcludes());
+        argument.append("exclclassloader", getExcludeClassLoaders());
         if (agent.supportsInclNoLocationClasses()) {
-            argument.append("inclnolocationclasses", convention.get(includeNoLocationClasses, "includeNoLocationClasses"));
+            argument.append("inclnolocationclasses", isIncludeNoLocationClasses());
         }
-        argument.append("sessionid", convention.get(sessionId, "sessionId"));
-        argument.append("dumponexit", convention.get(dumpOnExit, "dumpOnExit"));
-        argument.append("output", convention.get(output, "output").getAsArg());
-        argument.append("address", convention.get(address, "address"));
-        argument.append("port", convention.get(port, "port"));
-        argument.append("classdumpdir", classDumpFile);
+        argument.append("sessionid", getSessionId());
+        argument.append("dumponexit", isDumpOnExit());
+        argument.append("output", getOutput().getAsArg());
+        argument.append("address", getAddress());
+        argument.append("port", getPort());
+        argument.append("classdumpdir", getClassDumpDir());
 
         if (agent.supportsJmx()) {
-            argument.append("jmx", convention.get(jmx, "jmx"));
+            argument.append("jmx", isJmx());
         }
 
         return builder.toString();
-    }
-
-    private static class ConventionValueSupplier {
-
-        private final ConventionMapping mapping;
-
-        public ConventionValueSupplier(Object delegate) {
-            this.mapping = delegate instanceof IConventionAware
-                ? ((IConventionAware) delegate).getConventionMapping()
-                : null;
-        }
-
-        public <T> T get(T actualValue, String propertyName) {
-            if (mapping != null) {
-                return mapping.getConventionValue(actualValue, propertyName, false);
-            }
-            // For unit tests
-            return actualValue;
-        }
     }
 
     private static class ArgumentAppender {
@@ -342,7 +299,10 @@ public class JacocoTaskExtension {
         }
 
         public void append(String name, Object value) {
-            if (value != null && (!(value instanceof Collection) || !((Collection) value).isEmpty())) {
+            if (value != null
+                && !((value instanceof Collection) && ((Collection) value).isEmpty())
+                && !((value instanceof String) && (StringUtils.isEmpty((String) value)))
+                && !((value instanceof Integer) && (value == Integer.valueOf(0)))) {
                 if (anyArgs) {
                     builder.append(',');
                 }

@@ -16,8 +16,14 @@
 
 package org.gradle.api.internal.changedetection.state;
 
-class DirSnapshot implements IncrementalFileSnapshot {
+import com.google.common.base.Charsets;
+import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
+import org.gradle.internal.nativeintegration.filesystem.FileType;
+
+class DirSnapshot implements FileContentSnapshot {
     private static final DirSnapshot INSTANCE = new DirSnapshot();
+    private static final HashCode SIGNATURE = Hashing.md5().hashString(DirSnapshot.class.getName(), Charsets.UTF_8);
 
     private DirSnapshot() {
     }
@@ -27,11 +33,26 @@ class DirSnapshot implements IncrementalFileSnapshot {
     }
 
     @Override
-    public boolean isContentAndMetadataUpToDate(IncrementalFileSnapshot snapshot) {
+    public boolean isContentAndMetadataUpToDate(FileContentSnapshot snapshot) {
         return isContentUpToDate(snapshot);
     }
 
-    public boolean isContentUpToDate(IncrementalFileSnapshot snapshot) {
+    public boolean isContentUpToDate(FileContentSnapshot snapshot) {
         return snapshot instanceof DirSnapshot;
+    }
+
+    @Override
+    public FileType getType() {
+        return FileType.Directory;
+    }
+
+    @Override
+    public HashCode getContentMd5() {
+        return SIGNATURE;
+    }
+
+    @Override
+    public String toString() {
+        return "DIR";
     }
 }

@@ -17,8 +17,7 @@
 package org.gradle.internal.filewatch.jdk7;
 
 import com.google.common.base.Throwables;
-import com.sun.nio.file.ExtendedWatchEventModifier;
-import com.sun.nio.file.SensitivityWatchEventModifier;
+import org.gradle.api.JavaVersion;
 import org.gradle.api.internal.file.FileSystemSubset;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
@@ -26,11 +25,21 @@ import org.gradle.internal.UncheckedException;
 import org.gradle.internal.filewatch.FileWatcher;
 import org.gradle.internal.filewatch.FileWatcherEvent;
 import org.gradle.internal.filewatch.FileWatcherListener;
+import org.gradle.internal.nativeintegration.filesystem.FileSystem;
 import org.gradle.internal.os.OperatingSystem;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.FileSystemException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -41,22 +50,43 @@ import java.util.concurrent.locks.ReentrantLock;
 
 class WatchServiceRegistrar implements FileWatcherListener {
     private final static Logger LOG = Logging.getLogger(WatchServiceRegistrar.class);
-    private static final boolean FILE_TREE_WATCHING_SUPPORTED = OperatingSystem.current().isWindows();
-    private static final WatchEvent.Modifier[] WATCH_MODIFIERS =
-        FILE_TREE_WATCHING_SUPPORTED
-        ? new WatchEvent.Modifier[]{ExtendedWatchEventModifier.FILE_TREE, SensitivityWatchEventModifier.HIGH}
-        : new WatchEvent.Modifier[]{SensitivityWatchEventModifier.HIGH};
+    private static final boolean FILE_TREE_WATCHING_SUPPORTED = OperatingSystem.current().isWindows() && !JavaVersion.current().isJava9Compatible();
+    private static final WatchEvent.Modifier[] WATCH_MODIFIERS = instantiateWatchModifiers();
     private static final WatchEvent.Kind[] WATCH_KINDS = new WatchEvent.Kind[]{StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_DELETE, StandardWatchEventKinds.ENTRY_MODIFY};
 
     private final WatchService watchService;
     private final FileWatcherListener delegate;
     private final Lock lock = new ReentrantLock(true);
-    private final WatchPointsRegistry watchPointsRegistry = new WatchPointsRegistry(!FILE_TREE_WATCHING_SUPPORTED);
+    private final WatchPointsRegistry watchPointsRegistry;
     private final HashMap<Path, WatchKey> watchKeys = new HashMap<Path, WatchKey>();
 
-    WatchServiceRegistrar(WatchService watchService, FileWatcherListener delegate) {
+    WatchServiceRegistrar(WatchService watchService, FileWatcherListener delegate, FileSystem fileSystem) {
         this.watchService = watchService;
         this.delegate = delegate;
+        this.watchPointsRegistry = new WatchPointsRegistry(!FILE_TREE_WATCHING_SUPPORTED, fileSystem);
+    }
+
+    private static WatchEvent.Modifier[] instantiateWatchModifiers() {
+        if (JavaVersion.current().isJava9Compatible()) {
+            return new WatchEvent.Modifier[]{};
+        } else {
+            // use reflection to support older JVMs while supporting Java 9
+            WatchEvent.Modifier highSensitive = instantiateEnum("com.sun.nio.file.SensitivityWatchEventModifier", "HIGH");
+            if (FILE_TREE_WATCHING_SUPPORTED) {
+                WatchEvent.Modifier fileTree = instantiateEnum("com.sun.nio.file.ExtendedWatchEventModifier", "FILE_TREE");
+                return new WatchEvent.Modifier[]{fileTree, highSensitive};
+            } else {
+                return new WatchEvent.Modifier[]{highSensitive};
+            }
+        }
+    }
+
+    private static WatchEvent.Modifier instantiateEnum(String className, String enumName) {
+        try {
+            return (WatchEvent.Modifier) Enum.valueOf((Class<Enum>) Class.forName(className), enumName);
+        } catch (ClassNotFoundException e) {
+            throw UncheckedException.throwAsUncheckedException(e);
+        }
     }
 
     void watch(FileSystemSubset fileSystemSubset) throws IOException {

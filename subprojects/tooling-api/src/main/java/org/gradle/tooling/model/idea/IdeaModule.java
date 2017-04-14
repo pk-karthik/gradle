@@ -26,14 +26,6 @@ import org.gradle.tooling.model.*;
  * @since 1.0-milestone-5
  */
 public interface IdeaModule extends HierarchicalElement, HasGradleProject {
-    /**
-     * The unique identifier for this IDEA module.
-     *
-     * @return The unique identifier for this IDEA module.
-     * @since 2.14
-     */
-    @Incubating
-    IdeaModuleIdentifier getIdentifier();
 
     /**
      * Returns the Java language settings for this element, or {@code null} if this element is not a Java element.
@@ -44,6 +36,15 @@ public interface IdeaModule extends HierarchicalElement, HasGradleProject {
      */
     @Nullable @Incubating
     IdeaJavaLanguageSettings getJavaLanguageSettings() throws UnsupportedMethodException;
+
+    /**
+     * Returns the name of the JDK.
+     *
+     * @return The name of the JDK.
+     * @since 3.4
+     */
+    @Incubating
+    String getJdkName() throws UnsupportedMethodException;
 
     /**
      * All content roots. Most idea modules have a single content root.

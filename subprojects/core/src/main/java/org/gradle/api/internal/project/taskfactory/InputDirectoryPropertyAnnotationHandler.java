@@ -18,46 +18,29 @@ package org.gradle.api.internal.project.taskfactory;
 import org.gradle.api.file.ConfigurableFileTree;
 import org.gradle.api.internal.TaskInternal;
 import org.gradle.api.tasks.InputDirectory;
-import org.gradle.api.tasks.SkipWhenEmpty;
+import org.gradle.api.tasks.TaskInputFilePropertyBuilder;
 
 import java.io.File;
 import java.lang.annotation.Annotation;
 import java.util.Collection;
 import java.util.concurrent.Callable;
 
-public class InputDirectoryPropertyAnnotationHandler implements PropertyAnnotationHandler {
-    private final ValidationAction inputDirValidation = new ValidationAction() {
-        public void validate(String propertyName, Object value, Collection<String> messages) {
-            File fileValue = (value instanceof ConfigurableFileTree) ? ((ConfigurableFileTree) value).getDir() : (File) value;
-            if (!fileValue.exists()) {
-                messages.add(String.format("Directory '%s' specified for property '%s' does not exist.", fileValue, propertyName));
-            } else if (!fileValue.isDirectory()) {
-                messages.add(String.format("Directory '%s' specified for property '%s' is not a directory.", fileValue, propertyName));
-            }
-        }
-    };
-
+public class InputDirectoryPropertyAnnotationHandler extends AbstractInputPropertyAnnotationHandler {
     public Class<? extends Annotation> getAnnotationType() {
         return InputDirectory.class;
     }
 
-    public boolean attachActions(TaskPropertyActionContext context) {
-        context.setValidationAction(inputDirValidation);
-        final boolean isSourceDir = context.getTarget().getAnnotation(SkipWhenEmpty.class) != null;
-        context.setConfigureAction(new UpdateAction() {
-            public void update(TaskInternal task, Callable<Object> futureValue) {
-                if (isSourceDir) {
-                    task.getInputs().sourceDir(futureValue);
-                } else {
-                    task.getInputs().dir(futureValue);
-                }
-            }
-        });
-        return true;
+    @Override
+    protected void validate(String propertyName, Object value, Collection<String> messages) {
+        File fileValue = (value instanceof ConfigurableFileTree) ? ((ConfigurableFileTree) value).getDir() : (File) value;
+        if (!fileValue.exists()) {
+            messages.add(String.format("Directory '%s' specified for property '%s' does not exist.", fileValue, propertyName));
+        } else if (!fileValue.isDirectory()) {
+            messages.add(String.format("Directory '%s' specified for property '%s' is not a directory.", fileValue, propertyName));
+        }
     }
 
-    @Override
-    public boolean isNotBeNullByDefault() {
-        return true;
+    protected TaskInputFilePropertyBuilder createPropertyBuilder(TaskPropertyActionContext context, TaskInternal task, Callable<Object> futureValue) {
+        return task.getInputs().dir(futureValue);
     }
 }

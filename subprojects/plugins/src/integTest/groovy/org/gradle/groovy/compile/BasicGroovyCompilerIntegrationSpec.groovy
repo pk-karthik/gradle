@@ -29,7 +29,7 @@ import org.junit.Rule
 import spock.lang.Ignore
 import spock.lang.Issue
 
-@TargetVersions(['1.5.8', '1.6.9', '1.7.11', '1.8.8', '2.0.5', '2.1.9', '2.2.2', '2.3.10', '2.4.6'])
+@TargetVersions(['1.5.8', '1.6.9', '1.7.11', '1.8.8', '2.0.5', '2.1.9', '2.2.2', '2.3.10', '2.4.10'])
 abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegrationSpec {
     @Rule
     TestResources resources = new TestResources(temporaryFolder)
@@ -94,7 +94,7 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
 
         then:
         fails("compileGroovy")
-        compileErrorOutput.contains 'unable to resolve class'
+        checkCompileOutput('unable to resolve class')
         failure.assertHasCause(compilationFailureMessage)
 
         file('build/classes/stub/Groovy.java').exists()
@@ -113,7 +113,7 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
 
         then:
         fails("compileGroovy")
-        compileErrorOutput.contains 'unable to resolve class'
+        checkCompileOutput('unable to resolve class')
         failure.assertHasCause(compilationFailureMessage)
 
         // No Groovy stubs will be created if there are no java files
@@ -140,7 +140,7 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
 
         then:
         fails("compileGroovy")
-        compileErrorOutput.contains 'unable to resolve class'
+        checkCompileOutput('unable to resolve class')
         failure.assertHasCause(compilationFailureMessage)
 
         // Because annotation processing is disabled
@@ -161,7 +161,7 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
 
         then:
         fails("compileGroovy")
-        compileErrorOutput.contains 'unable to resolve class'
+        checkCompileOutput('unable to resolve class')
         failure.assertHasCause(compilationFailureMessage)
 
         // If there is no annotation processor on the classpath,
@@ -230,7 +230,7 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
 
         then:
         fails("compileGroovy")
-        compileErrorOutput.contains 'unable to resolve class'
+        checkCompileOutput('unable to resolve class')
         failure.assertHasCause(compilationFailureMessage)
 
         // Because there is an annotation processor on the classpath,
@@ -289,7 +289,7 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
 
         then:
         fails("compileGroovy")
-        compileErrorOutput.contains 'unable to resolve class'
+        checkCompileOutput('unable to resolve class')
         failure.assertHasCause(compilationFailureMessage)
 
         // Because annotation processing is disabled
@@ -373,7 +373,7 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
 
         expect:
         fails("compileGroovy")
-        compileErrorOutput.contains('Cannot find matching method java.lang.String#bar()')
+        checkCompileOutput('Cannot find matching method java.lang.String#bar()')
     }
 
     def "failsBecauseOfMissingConfigFile"() {
@@ -415,7 +415,7 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
 
         then:
         fails("compileGroovy")
-        compileErrorOutput.contains("unable to resolve class ${gradleBaseServicesClass.name}")
+        checkCompileOutput("unable to resolve class ${gradleBaseServicesClass.name}")
     }
 
     @Ignore
@@ -440,6 +440,90 @@ abstract class BasicGroovyCompilerIntegrationSpec extends MultiVersionIntegratio
         then:
         succeeds("compileGroovy")
     }
+
+    def "compile bad groovy code do not fail the build when options.failOnError is false"() {
+        given:
+        buildFile << """
+            apply plugin: "groovy"
+            repositories { mavenCentral() }
+            compileGroovy.options.failOnError = false
+        """.stripIndent()
+
+        and:
+        badCode()
+
+        expect:
+        succeeds 'compileGroovy'
+    }
+
+    def "compile bad groovy code do not fail the build when groovyOptions.failOnError is false"() {
+        given:
+        buildFile << """
+            apply plugin: "groovy"
+            repositories { mavenCentral() }
+            compileGroovy.groovyOptions.failOnError = false
+        """.stripIndent()
+
+        and:
+        badCode()
+
+        expect:
+        succeeds 'compileGroovy'
+    }
+
+    def "joint compile bad java code do not fail the build when options.failOnError is false"() {
+        given:
+        buildFile << """
+            apply plugin: "groovy"
+            repositories { mavenCentral() }
+            compileGroovy.options.failOnError = false
+        """.stripIndent()
+
+        and:
+        goodCode()
+        badJavaCode()
+
+        expect:
+        succeeds 'compileGroovy'
+    }
+
+    def "joint compile bad java code do not fail the build when groovyOptions.failOnError is false"() {
+        given:
+        buildFile << """
+            apply plugin: "groovy"
+            repositories { mavenCentral() }
+            compileGroovy.groovyOptions.failOnError = false
+        """.stripIndent()
+
+        and:
+        goodCode()
+        badJavaCode()
+
+        expect:
+        succeeds 'compileGroovy'
+    }
+
+    def goodCode() {
+        file("src/main/groovy/compile/test/Person.groovy") << """
+            package compile.test
+            class Person {}
+        """.stripIndent()
+    }
+
+    def badCode() {
+        file("src/main/groovy/compile/test/Person.groovy") << """
+            package compile.test
+            class Person extends {}
+        """.stripIndent()
+    }
+
+    def badJavaCode() {
+        file("src/main/groovy/compile/test/Something.java") << """
+            package compile.test;
+            class Something extends {}
+        """.stripIndent()
+    }
+
 
     protected ExecutionResult run(String... tasks) {
         configureGroovy()
@@ -539,8 +623,8 @@ ${compilerConfiguration()}
                         public class SimpleAnnotationProcessor extends AbstractProcessor {
                             @Override
                             public boolean process(final Set<? extends TypeElement> annotations, final RoundEnvironment roundEnv) {
-                                if (isClasspathContaminated()) {
-                                    throw new RuntimeException("Annotation Processor Classpath is contaminated by Gradle ClassLoader");
+                                if (${gradleLeaksIntoAnnotationProcessor() ? '!' : ''}isClasspathContaminated()) {
+                                    throw new RuntimeException("Annotation Processor Classpath is ${gradleLeaksIntoAnnotationProcessor() ? 'not ' : ''}}contaminated by Gradle ClassLoader");
                                 }
 
                                 for (final Element classElement : roundEnv.getElementsAnnotatedWith(SimpleAnnotation.class)) {
@@ -587,6 +671,14 @@ ${compilerConfiguration()}
                 }
             }
         }
+    }
+
+    String checkCompileOutput(String errorMessage) {
+        compileErrorOutput.contains(errorMessage)
+    }
+
+    protected boolean gradleLeaksIntoAnnotationProcessor() {
+        return false;
     }
 
     def writeAnnotationProcessingBuild(String java, String groovy) {

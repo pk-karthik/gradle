@@ -137,7 +137,7 @@ public class WrapperTest extends AbstractTaskTest {
     def "check inputs"() {
         expect:
         wrapper.getInputs().getProperties().keySet() == WrapUtil.toSet(
-            "distributionBase", "distributionPath", "distributionUrl", "archiveBase", "archivePath", "gradleVersion")
+            "distributionBase", "distributionPath", "distributionUrl", "distributionType", "archiveBase", "archivePath", "gradleVersion")
     }
 
     def "execute with extant wrapper jar parent directory and extant wraper jar"() {
@@ -163,5 +163,21 @@ public class WrapperTest extends AbstractTaskTest {
         properties.getProperty(WrapperExecutor.DISTRIBUTION_PATH_PROPERTY) == wrapper.getDistributionPath()
         properties.getProperty(WrapperExecutor.ZIP_STORE_BASE_PROPERTY) == wrapper.getArchiveBase().toString()
         properties.getProperty(WrapperExecutor.ZIP_STORE_PATH_PROPERTY) == wrapper.getArchivePath()
+    }
+
+    def "distributionUrl should not contain small dotless I letter when locale has small dotless I letter"() {
+        given:
+        Locale originalLocale = Locale.getDefault()
+        Locale.setDefault(new Locale("tr","TR"))
+
+        when:
+        wrapper.execute()
+        String distributionUrl = wrapper.getDistributionUrl()
+
+        then:
+        distributionUrl.contains("\u0131") == false
+
+        cleanup:
+        Locale.setDefault(originalLocale)
     }
 }

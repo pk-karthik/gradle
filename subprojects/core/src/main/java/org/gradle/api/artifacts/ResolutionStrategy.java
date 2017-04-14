@@ -36,6 +36,9 @@ import java.util.concurrent.TimeUnit;
  *     // e.g. multiple different versions of the same dependency (group and name are equal)
  *     failOnVersionConflict()
  *
+ *     // prefer modules that are part of this build (multi-project or composite build) over external modules
+ *     preferProjectModules()
+ *
  *     // force certain versions of dependencies (including transitive)
  *     //  *append new forced modules:
  *     force 'asm:asm-all:3.3.1', 'commons-io:commons-io:1.4'
@@ -78,6 +81,24 @@ public interface ResolutionStrategy {
      * @since 1.0-milestone-6
      */
     ResolutionStrategy failOnVersionConflict();
+
+    /**
+     * Gradle can resolve conflicts purely by version number or prioritize project dependencies over binary.
+     * The default is <b>by version number</b>.<p>
+     * This applies to both first level and transitive dependencies. See example below:
+     *
+     * <pre autoTested=''>
+     * apply plugin: 'java' //so that there are some configurations
+     *
+     * configurations.all {
+     *   resolutionStrategy.preferProjectModules()
+     * }
+     * </pre>
+     *
+     * @since 3.2
+     */
+    @Incubating
+    void preferProjectModules();
 
     /**
      * Allows forcing certain versions of dependencies, including transitive dependencies.
@@ -264,4 +285,32 @@ public interface ResolutionStrategy {
      */
     @Incubating
     ResolutionStrategy dependencySubstitution(Action<? super DependencySubstitutions> action);
+
+    /**
+     * Specifies the ordering for resolved artifacts. Options are:
+     * <ul>
+     * <li>{@link SortOrder#DEFAULT} : Don't specify the sort order. Gradle will provide artifacts in the default order.</li>
+     * <li>{@link SortOrder#CONSUMER_FIRST} : Artifacts for a consuming component should appear <em>before</em> artifacts for it's dependencies.</li>
+     * <li>{@link SortOrder#DEPENDENCY_FIRST} : Artifacts for a consuming component should appear <em>after</em> artifacts for it's dependencies.</li>
+     * </ul>
+     * A best attempt will be made to sort artifacts according the supplied {@link SortOrder}, but no guarantees will be made in the presence of dependency cycles.
+     *
+     * NOTE: For a particular Gradle version, artifact ordering will be consistent. Multiple resolves for the same inputs will result in the
+     * same outputs in the same order.
+     *
+     * @since 3.5
+     */
+    @Incubating
+    void sortArtifacts(SortOrder sortOrder);
+
+    /**
+     * Defines the sort order for components and artifacts produced by the configuration.
+     *
+     * @see #sortArtifacts(SortOrder)
+     * @since 3.5
+     */
+    @Incubating
+    enum SortOrder {
+        DEFAULT, CONSUMER_FIRST, DEPENDENCY_FIRST
+    }
 }

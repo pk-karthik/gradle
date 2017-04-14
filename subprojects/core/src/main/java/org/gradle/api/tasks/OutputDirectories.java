@@ -29,11 +29,7 @@ import java.lang.annotation.Target;
  *
  * <p>This will cause the task to be considered out-of-date when the directory paths or task
  * output to those directories have been modified since the task was last run.</p>
- *
- * @deprecated Use separate properties annotated with {@literal @}{@link OutputDirectory} instead, or
- * reorganize outputs under a single output directory.
  */
-@Deprecated
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.METHOD, ElementType.FIELD})

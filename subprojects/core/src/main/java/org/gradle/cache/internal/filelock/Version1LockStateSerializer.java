@@ -57,6 +57,14 @@ public class Version1LockStateSerializer implements LockStateSerializer {
             return dirty;
         }
 
+        public boolean canDetectChanges() {
+            return false;
+        }
+
+        public boolean isInInitialState() {
+            return false;
+        }
+
         public LockState beforeUpdate() {
             return new DirtyFlagLockState(true);
         }

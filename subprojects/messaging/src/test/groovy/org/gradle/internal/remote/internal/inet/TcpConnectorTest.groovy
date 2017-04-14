@@ -26,6 +26,8 @@ import org.gradle.internal.serialize.Encoder
 import org.gradle.internal.serialize.Serializer
 import org.gradle.internal.serialize.Serializers
 import org.gradle.test.fixtures.concurrent.ConcurrentSpec
+import org.gradle.util.ports.ReleasingPortAllocator
+import org.junit.Rule
 import spock.lang.Issue
 import spock.lang.Shared
 import spock.lang.Timeout
@@ -40,6 +42,8 @@ class TcpConnectorTest extends ConcurrentSpec {
     final def addressFactory = new InetAddressFactory()
     final def outgoingConnector = new TcpOutgoingConnector()
     final def incomingConnector = new TcpIncomingConnector(executorFactory, addressFactory, idGenerator)
+    @Rule
+    public ReleasingPortAllocator portAllocator = new ReleasingPortAllocator()
 
     def "client can connect to server"() {
         Action action = Mock()
@@ -88,7 +92,7 @@ class TcpConnectorTest extends ConcurrentSpec {
     }
 
     def "client throws exception when cannot connect to server"() {
-        def address = new MultiChoiceAddress(idGenerator.generateId(), 12345, [InetAddress.getByName("localhost")])
+        def address = new MultiChoiceAddress(idGenerator.generateId(), portAllocator.assignPort(), [InetAddress.getByName("localhost")])
 
         when:
         outgoingConnector.connect(address)
@@ -100,7 +104,7 @@ class TcpConnectorTest extends ConcurrentSpec {
     }
 
     def "the exception includes last failure when cannot connect"() {
-        def address = new MultiChoiceAddress(idGenerator.generateId(), 12345, [InetAddress.getByName("localhost"), InetAddress.getByName("127.0.0.1")])
+        def address = new MultiChoiceAddress(idGenerator.generateId(), portAllocator.assignPort(), [InetAddress.getByName("localhost"), InetAddress.getByName("127.0.0.1")])
 
         when:
         outgoingConnector.connect(address)
@@ -280,10 +284,10 @@ class TcpConnectorTest extends ConcurrentSpec {
     def "detects self connect when outgoing connection binds to same port"() {
         given:
         def socketChannel = SocketChannel.open()
-        def localAddress = addressFactory.findLocalAddresses().find { it instanceof Inet6Address }
-        def bindAnyPort = new InetSocketAddress(localAddress, 0)
+        def communicationAddress = addressFactory.getCommunicationAddresses().find { it instanceof Inet6Address }
+        def bindAnyPort = new InetSocketAddress(communicationAddress, 0)
         socketChannel.socket().bind(bindAnyPort)
-        def selfConnect = new InetSocketAddress(localAddress, socketChannel.socket().getLocalPort())
+        def selfConnect = new InetSocketAddress(communicationAddress, socketChannel.socket().getLocalPort())
 
         when:
         socketChannel.socket().connect(selfConnect)
@@ -301,9 +305,9 @@ class TcpConnectorTest extends ConcurrentSpec {
         def action = Mock(Action)
         def socketChannel = SocketChannel.open()
         def acceptor = incomingConnector.accept(action, false)
-        def localAddress = addressFactory.findLocalAddresses().find { it instanceof Inet6Address }
-        def bindAnyPort = new InetSocketAddress(localAddress, 0)
-        def connectAddress = new InetSocketAddress(localAddress, acceptor.address.port)
+        def communicationAddress = addressFactory.getCommunicationAddresses().find { it instanceof Inet6Address }
+        def bindAnyPort = new InetSocketAddress(communicationAddress, 0)
+        def connectAddress = new InetSocketAddress(communicationAddress, acceptor.address.port)
 
         when:
         socketChannel.socket().bind(bindAnyPort)

@@ -61,7 +61,7 @@ class TaskReportContainerTest extends Specification {
         def container = project.services.get(Instantiator).newInstance(TestReportContainer, task, c)
         container.all {
             it.enabled true
-            destination it.name
+            destination project.file(it.name)
         }
         task.reports = container
         return container
@@ -80,9 +80,6 @@ class TaskReportContainerTest extends Specification {
         when:
         container.a.enabled = aEnabled
         container.b.enabled = bEnabled
-
-        task.inputs.ensureConfigured()
-        task.outputs.ensureConfigured()
 
         then:
         outputFiles*.name == fileNames

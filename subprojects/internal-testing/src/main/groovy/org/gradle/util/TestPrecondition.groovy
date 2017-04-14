@@ -17,6 +17,8 @@ package org.gradle.util
 import org.gradle.api.JavaVersion
 import org.gradle.internal.os.OperatingSystem
 
+import javax.tools.ToolProvider
+
 enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
     NULL_REQUIREMENT({ true }),
     SWING({
@@ -85,11 +87,11 @@ enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
     NOT_UNKNOWN_OS({
         !UNKNOWN_OS.fulfilled
     }),
-    JDK6({
-        JavaVersion.current() == JavaVersion.VERSION_1_6
-    }),
     JDK7_OR_EARLIER({
         JavaVersion.current() <= JavaVersion.VERSION_1_7
+    }),
+    JDK9_OR_LATER({
+        JavaVersion.current() >= JavaVersion.VERSION_1_9
     }),
     JDK8_OR_LATER({
         JavaVersion.current() >= JavaVersion.VERSION_1_8
@@ -103,11 +105,17 @@ enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
     NOT_JDK_IBM({
         !JDK_IBM.fulfilled
     }),
+    FIX_TO_WORK_ON_JAVA9({
+        JDK8_OR_EARLIER.fulfilled
+    }),
     JDK_IBM({
         System.getProperty('java.vm.vendor') == 'IBM Corporation'
     }),
     JDK_ORACLE({
         System.getProperty('java.vm.vendor') == 'Oracle Corporation'
+    }),
+    JDK({
+        ToolProvider.systemJavaCompiler != null
     }),
     ONLINE({
         try {
@@ -137,7 +145,10 @@ enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
     }),
     NOT_PULL_REQUEST_BUILD({
         !PULL_REQUEST_BUILD.fulfilled
-    });
+    }),
+    KOTLIN_SCRIPT({
+        FIX_TO_WORK_ON_JAVA9.fulfilled && NOT_JDK_IBM.fulfilled
+    })
 
     /**
      * A predicate for testing whether the precondition is fulfilled.

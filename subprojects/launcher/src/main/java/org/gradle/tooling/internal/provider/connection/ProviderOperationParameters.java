@@ -17,7 +17,6 @@ package org.gradle.tooling.internal.provider.connection;
 
 import org.gradle.api.Nullable;
 import org.gradle.api.logging.LogLevel;
-import org.gradle.internal.composite.GradleParticipantBuild;
 import org.gradle.tooling.internal.protocol.InternalBuildProgressListener;
 import org.gradle.tooling.internal.protocol.InternalLaunchable;
 import org.gradle.tooling.internal.protocol.ProgressListenerVersion1;
@@ -26,6 +25,7 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -55,6 +55,12 @@ public interface ProviderOperationParameters {
      */
     @Nullable
     List<String> getJvmArguments();
+
+    /**
+     * @return When null, use the provider's default environment variables. When empty, use no environment variables.
+     */
+    @Nullable
+    Map<String, String> getEnvironmentVariables();
 
     /**
      * @since 1.0-milestone-3
@@ -163,10 +169,4 @@ public interface ProviderOperationParameters {
      * @since 2.8-rc-1
      */
     List<File> getInjectedPluginClasspath(List<File> defaultClasspath);
-
-    /**
-     * @since 2.14-rc-1
-     */
-    @Nullable
-    List<GradleParticipantBuild> getBuilds(List<GradleParticipantBuild> defaultBuilds);
 }

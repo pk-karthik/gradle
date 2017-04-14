@@ -22,9 +22,10 @@ import org.gradle.process.internal.ExecException
 import org.gradle.process.internal.ExecHandle
 import org.gradle.process.internal.ExecHandleListener
 import org.gradle.process.internal.ExecHandleState
+import org.gradle.process.internal.health.memory.JvmMemoryStatus
 import org.gradle.test.fixtures.file.LeaksFileHandles
 import org.gradle.util.JUnit4GroovyMockery
-import org.gradle.util.MultithreadedTestCase
+import org.gradle.util.MultithreadedTestRule
 import org.jmock.Mockery
 import org.jmock.integration.junit4.JMock
 import org.junit.Test
@@ -38,11 +39,12 @@ import static org.junit.Assert.fail
 
 @RunWith(JMock.class)
 @LeaksFileHandles
-class DefaultWorkerProcessTest extends MultithreadedTestCase {
+class DefaultWorkerProcessTest extends MultithreadedTestRule {
     private final Mockery context = new JUnit4GroovyMockery()
     private final ExecHandle execHandle = context.mock(ExecHandle.class)
     private final ObjectConnection connection = context.mock(ObjectConnection.class)
-    private final DefaultWorkerProcess workerProcess = new DefaultWorkerProcess(1, TimeUnit.SECONDS)
+    private final JvmMemoryStatus jvmMemoryStatus = context.mock(JvmMemoryStatus.class)
+    private final DefaultWorkerProcess workerProcess = new DefaultWorkerProcess(1, TimeUnit.SECONDS, jvmMemoryStatus)
 
     @Test
     public void startsChildProcessAndBlocksUntilConnectionEstablished() {

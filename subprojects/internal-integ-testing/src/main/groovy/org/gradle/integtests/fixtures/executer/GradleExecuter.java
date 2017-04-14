@@ -18,6 +18,7 @@ package org.gradle.integtests.fixtures.executer;
 import groovy.lang.Closure;
 import groovy.lang.DelegatesTo;
 import org.gradle.api.Action;
+import org.gradle.internal.concurrent.Stoppable;
 import org.gradle.test.fixtures.file.TestDirectoryProvider;
 import org.gradle.test.fixtures.file.TestFile;
 
@@ -27,7 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-public interface GradleExecuter {
+public interface GradleExecuter extends Stoppable {
     /**
      * Sets the working directory to use. Defaults to the test's temporary directory.
      */
@@ -168,6 +169,12 @@ public interface GradleExecuter {
      */
     GradleExecuter withBuildJvmOpts(Iterable<String> jvmOpts);
 
+    /**
+     * Activates the build cache
+     *
+     * @return this executer
+     */
+    GradleExecuter withBuildCacheEnabled();
 
     /**
      * Don't set temp folder explicitly.
@@ -180,10 +187,15 @@ public interface GradleExecuter {
     GradleExecuter withNoExplicitNativeServicesDir();
 
     /**
+     * Disables the rendering of stack traces for deprecation logging.
+     */
+    GradleExecuter withFullDeprecationStackTraceDisabled();
+
+    /**
      * Specifies that the executer should only those JVM args explicitly requested using {@link #withBuildJvmOpts(String...)} and {@link #withCommandLineGradleOpts(String...)} (where appropriate) for
      * the build JVM and not attempt to provide any others.
      */
-    GradleExecuter useDefaultBuildJvmArgs();
+    GradleExecuter useOnlyRequestedJvmOpts();
 
     /**
      * Sets the default character encoding to use.
@@ -271,6 +283,11 @@ public interface GradleExecuter {
     GradleExecuter expectDeprecationWarning();
 
     /**
+     * Disable deprecation warning checks.
+     */
+    GradleExecuter noDeprecationChecks();
+
+    /**
      * Disables asserting that class loaders were not eagerly created, potentially leading to performance problems.
      */
     GradleExecuter withEagerClassLoaderCreationCheckDisabled();
@@ -301,6 +318,11 @@ public interface GradleExecuter {
      * <p>Note: this does not affect the Gradle user home directory.</p>
      */
     GradleExecuter requireIsolatedDaemons();
+
+    /**
+     * Disable worker daemons expiration.
+     */
+    GradleExecuter withWorkerDaemonsExpirationDisabled();
 
     /**
      * Returns true if this executer will share daemons with other executers.
@@ -339,7 +361,7 @@ public interface GradleExecuter {
     /**
      * Where possible, starts the Gradle build process in suspended debug mode.
      */
-    GradleExecuter withDebug(boolean flag);
+    GradleExecuter startBuildProcessInDebugger(boolean flag);
 
     GradleExecuter withProfiler(String profilerArg);
 
@@ -351,4 +373,38 @@ public interface GradleExecuter {
     boolean isDebug();
 
     boolean isProfile();
+
+    /**
+     * Starts the launcher JVM (daemon client) in suspended debug mode
+     */
+    GradleExecuter startLauncherInDebugger(boolean debugLauncher);
+
+    boolean isDebugLauncher();
+
+    /**
+     * Clears previous settings so that instance can be reused
+     */
+    GradleExecuter reset();
+
+    /**
+     * Measures the duration of the execution
+     */
+    GradleExecuter withDurationMeasurement(DurationMeasurement durationMeasurement);
+
+    /**
+     * Returns true if this executer uses a daemon
+     */
+    boolean isUseDaemon();
+
+    /**
+     * Configures that user home services should not be reused across multiple invocations.
+     *
+     * <p>
+     * Note: You will want to call this method if the test case defines a custom Gradle user home directory
+     * so the services can be shut down after test execution in
+     * {@link org.gradle.internal.service.scopes.DefaultGradleUserHomeScopeServiceRegistry#release(org.gradle.internal.service.ServiceRegistry)}.
+     * Not calling the method in those situations will result in the inability to delete a file lock.
+     * </p>
+     */
+    GradleExecuter withOwnUserHomeServices();
 }

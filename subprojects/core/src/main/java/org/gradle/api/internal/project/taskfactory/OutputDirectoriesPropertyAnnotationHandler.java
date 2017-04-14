@@ -15,14 +15,9 @@
  */
 package org.gradle.api.internal.project.taskfactory;
 
-import org.gradle.api.Action;
-import org.gradle.api.Task;
 import org.gradle.api.internal.TaskInternal;
 import org.gradle.api.tasks.OutputDirectories;
-import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.TaskOutputs;
-import org.gradle.internal.Cast;
-import org.gradle.util.DeprecationLogger;
+import org.gradle.api.tasks.TaskOutputFilePropertyBuilder;
 
 import java.io.File;
 import java.lang.annotation.Annotation;
@@ -30,14 +25,10 @@ import java.util.Collection;
 import java.util.concurrent.Callable;
 
 import static org.gradle.api.internal.tasks.TaskOutputsUtil.ensureDirectoryExists;
-import static org.gradle.internal.Cast.uncheckedCast;
-import static org.gradle.util.GUtil.uncheckedCall;
+import static org.gradle.api.internal.tasks.TaskOutputsUtil.validateDirectory;
 
 @SuppressWarnings("deprecation")
-public class OutputDirectoriesPropertyAnnotationHandler extends AbstractOutputDirectoryPropertyAnnotationHandler {
-
-    private static final String DEPRECATION_MESSAGE = String.format("Please use separate properties for each directory annotated with @%s, or reorganize output under a single output directory.",
-        OutputDirectory.class.getSimpleName());
+public class OutputDirectoriesPropertyAnnotationHandler extends AbstractPluralOutputPropertyAnnotationHandler {
 
     @Override
     public Class<? extends Annotation> getAnnotationType() {
@@ -45,42 +36,17 @@ public class OutputDirectoriesPropertyAnnotationHandler extends AbstractOutputDi
     }
 
     @Override
-    public boolean attachActions(TaskPropertyActionContext context) {
-        DeprecationLogger.nagUserOfDiscontinuedAnnotation(OutputDirectories.class, DEPRECATION_MESSAGE);
-        return super.attachActions(context);
+    protected TaskOutputFilePropertyBuilder createPropertyBuilder(TaskPropertyActionContext context, TaskInternal task, Callable<Object> futureValue) {
+        return task.getOutputs().dirs(futureValue);
     }
 
     @Override
-    protected void validate(String propertyName, Object value, Collection<String> messages) {
-        if (value != null) {
-            for (File directory : Cast.<Iterable<File>>uncheckedCast(value)) {
-                validateDirectory(propertyName, directory, messages);
-            }
-        }
+    protected void doValidate(String propertyName, File directory, Collection<String> messages) {
+        validateDirectory(propertyName, directory, messages);
     }
 
     @Override
-    protected void update(TaskPropertyActionContext context, TaskInternal task, final Callable<Object> futureValue) {
-        task.getOutputs().configure(new Action<TaskOutputs>() {
-            @Override
-            public void execute(TaskOutputs taskOutputs) {
-                Iterable<File> directories = uncheckedCast(uncheckedCall(futureValue));
-                if (directories != null) {
-                    for (File directory : directories) {
-                        taskOutputs.dir(directory);
-                    }
-                }
-            }
-        });
-        task.prependParallelSafeAction(new Action<Task>() {
-            public void execute(Task task) {
-                Iterable<File> directories = uncheckedCast(uncheckedCall(futureValue));
-                if (directories != null) {
-                    for (File directory : directories) {
-                        ensureDirectoryExists(directory);
-                    }
-                }
-            }
-        });
+    protected void doEnsureExists(File directory) {
+        ensureDirectoryExists(directory);
     }
 }

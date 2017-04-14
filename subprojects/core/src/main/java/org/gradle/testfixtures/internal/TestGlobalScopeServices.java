@@ -17,7 +17,14 @@ package org.gradle.testfixtures.internal;
 
 import org.gradle.cache.internal.CacheFactory;
 import org.gradle.cache.internal.FileLockManager;
+import org.gradle.internal.concurrent.ExecutorFactory;
+import org.gradle.internal.event.ListenerManager;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
+import org.gradle.internal.progress.BuildOperationExecutor;
+import org.gradle.internal.progress.BuildOperationListener;
+import org.gradle.internal.progress.DefaultBuildOperationExecutor;
 import org.gradle.internal.service.scopes.GlobalScopeServices;
+import org.gradle.internal.time.TimeProvider;
 
 public class TestGlobalScopeServices extends GlobalScopeServices {
     public TestGlobalScopeServices() {
@@ -25,7 +32,18 @@ public class TestGlobalScopeServices extends GlobalScopeServices {
     }
 
     @Override
-    protected CacheFactory createCacheFactory(FileLockManager fileLockManager) {
+    protected CacheFactory createCacheFactory(FileLockManager fileLockManager, ExecutorFactory executorFactory) {
         return new InMemoryCacheFactory();
+    }
+
+    BuildOperationExecutor createBuildOperationExecutor(ListenerManager listenerManager, TimeProvider timeProvider, ProgressLoggerFactory progressLoggerFactory) {
+        return new ProjectBuilderBuildOperationExecutor(listenerManager.getBroadcaster(BuildOperationListener.class), timeProvider, progressLoggerFactory);
+    }
+
+    private static class ProjectBuilderBuildOperationExecutor extends DefaultBuildOperationExecutor {
+        ProjectBuilderBuildOperationExecutor(BuildOperationListener listener, TimeProvider timeProvider, ProgressLoggerFactory progressLoggerFactory) {
+            super(listener, timeProvider, progressLoggerFactory);
+            createRunningRootOperation("ProjectBuilder");
+        }
     }
 }

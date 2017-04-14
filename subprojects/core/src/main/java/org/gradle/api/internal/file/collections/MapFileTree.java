@@ -25,11 +25,11 @@ import org.gradle.api.file.RelativePath;
 import org.gradle.api.internal.file.AbstractFileTreeElement;
 import org.gradle.api.internal.file.FileSystemSubset;
 import org.gradle.internal.Factory;
+import org.gradle.internal.io.StreamByteBuffer;
 import org.gradle.internal.nativeintegration.filesystem.Chmod;
 import org.gradle.util.CollectionUtils;
 import org.gradle.util.ConfigureUtil;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -48,18 +48,20 @@ public class MapFileTree implements MinimalFileTree, FileSystemMirroringFileTree
     private final Map<RelativePath, Action<OutputStream>> elements = new LinkedHashMap<RelativePath, Action<OutputStream>>();
     private final Factory<File> tmpDirSource;
     private final Chmod chmod;
+    private final DirectoryFileTreeFactory directoryFileTreeFactory;
 
-    public MapFileTree(final File tmpDir, Chmod chmod) {
+    public MapFileTree(final File tmpDir, Chmod chmod, DirectoryFileTreeFactory directoryFileTreeFactory) {
         this(new Factory<File>() {
                 public File create() {
                     return tmpDir;
                 }
-        }, chmod);
+        }, chmod, directoryFileTreeFactory);
     }
 
-    public MapFileTree(Factory<File> tmpDirSource, Chmod chmod) {
+    public MapFileTree(Factory<File> tmpDirSource, Chmod chmod, DirectoryFileTreeFactory directoryFileTreeFactory) {
         this.tmpDirSource = tmpDirSource;
         this.chmod = chmod;
+        this.directoryFileTreeFactory = directoryFileTreeFactory;
     }
 
     private File getTmpDir() {
@@ -71,7 +73,7 @@ public class MapFileTree implements MinimalFileTree, FileSystemMirroringFileTree
     }
 
     public DirectoryFileTree getMirror() {
-        return new DirectoryFileTree(getTmpDir());
+        return directoryFileTreeFactory.create(getTmpDir());
     }
 
     public void visit(FileVisitor visitor) {
@@ -196,9 +198,9 @@ public class MapFileTree implements MinimalFileTree, FileSystemMirroringFileTree
         }
 
         private byte[] generateContent() {
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream(Math.max(((int) file.length()) + 64, 256));
-            copyTo(buffer);
-            return buffer.toByteArray();
+            StreamByteBuffer buffer = new StreamByteBuffer();
+            copyTo(buffer.getOutputStream());
+            return buffer.readAsByteArray();
         }
 
         private boolean hasContent(byte[] generatedContent, File file) {

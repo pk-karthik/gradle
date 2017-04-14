@@ -23,6 +23,8 @@ import org.gradle.test.fixtures.ConcurrentTestUtil;
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Random;
@@ -33,7 +35,7 @@ import java.util.regex.Pattern;
  * A JUnit rule which provides a unique temporary folder for the test.
  */
 abstract class AbstractTestDirectoryProvider implements TestRule, TestDirectoryProvider {
-
+    private static final Logger LOG = LoggerFactory.getLogger(AbstractTestDirectoryProvider.class);
     protected static TestFile root;
 
     private static final Random RANDOM = new Random();
@@ -121,24 +123,32 @@ abstract class AbstractTestDirectoryProvider implements TestRule, TestDirectoryP
 
     public TestFile getTestDirectory() {
         if (dir == null) {
-            if (prefix == null) {
-                // This can happen if this is used in a constructor or a @Before method. It also happens when using
-                // @RunWith(SomeRunner) when the runner does not support rules.
-                prefix = determinePrefix();
-            }
-            while (true) {
-                // Use a random prefix to avoid reusing test directories
-                String prefix = Integer.toString(RANDOM.nextInt(MAX_RANDOM_PART_VALUE), ALL_DIGITS_AND_LETTERS_RADIX);
-                if (WINDOWS_RESERVED_NAMES.matcher(prefix).matches()) {
-                    continue;
-                }
-                dir = root.file(this.prefix, prefix);
-                if (dir.mkdirs()) {
-                    break;
-                }
-            }
+           dir = createUniqueTestDirectory();
         }
         return dir;
+    }
+
+    private TestFile createUniqueTestDirectory() {
+        while (true) {
+            // Use a random prefix to avoid reusing test directories
+            String randomPrefix = Integer.toString(RANDOM.nextInt(MAX_RANDOM_PART_VALUE), ALL_DIGITS_AND_LETTERS_RADIX);
+            if (WINDOWS_RESERVED_NAMES.matcher(randomPrefix).matches()) {
+                continue;
+            }
+            TestFile dir = root.file(getPrefix(), randomPrefix);
+            if (dir.mkdirs()) {
+                return dir;
+            }
+        }
+    }
+
+    private String getPrefix() {
+        if (prefix == null) {
+            // This can happen if this is used in a constructor or a @Before method. It also happens when using
+            // @RunWith(SomeRunner) when the runner does not support rules.
+            prefix = determinePrefix();
+        }
+        return prefix;
     }
 
     public TestFile file(Object... path) {

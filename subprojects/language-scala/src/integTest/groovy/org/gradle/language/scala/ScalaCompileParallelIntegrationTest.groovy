@@ -16,16 +16,17 @@
 
 package org.gradle.language.scala
 
-import org.gradle.api.internal.tasks.scala.ZincScalaCompiler
-import org.gradle.execution.taskgraph.DefaultTaskExecutionPlan
+import org.gradle.api.internal.tasks.scala.ZincScalaCompilerUtil
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import org.gradle.integtests.fixtures.executer.GradleExecuter
+import org.gradle.language.scala.internal.toolchain.DefaultScalaToolProvider
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.server.http.BlockingHttpServer
 import org.gradle.util.GradleVersion
 import org.gradle.util.TextUtil
 import org.junit.Rule
+import spock.lang.Ignore
 import spock.lang.IgnoreIf
 import spock.lang.Issue
 
@@ -58,6 +59,7 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
                 ${blockUntilAllCompilersAreReady('$path')}
                 $userProvidedZincDirSystemProperty
             }
+            $lockTimeoutLoggerListenerSource
         """
         expectTasksWithParallelExecuter()
 
@@ -68,7 +70,8 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
         noExceptionThrown()
         zincCacheInterfaceJars.size() == 1
         configuredZincDirInterfaceJars.size() == 0
-        output.count(ZincScalaCompiler.ZINC_DIR_IGNORED_MESSAGE) == MAX_PARALLEL_COMPILERS
+        output.count(ZincScalaCompilerUtil.ZINC_DIR_IGNORED_MESSAGE) == MAX_PARALLEL_COMPILERS
+        leakedTempFiles.isEmpty()
 
         // Check that we can successfully use an existing compiler-interface.jar as well
         when:
@@ -78,9 +81,12 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
         then:
         noExceptionThrown()
         zincCacheInterfaceJars.size() == 1
-        output.count(ZincScalaCompiler.ZINC_DIR_IGNORED_MESSAGE) == MAX_PARALLEL_COMPILERS
+        output.count(ZincScalaCompilerUtil.ZINC_DIR_IGNORED_MESSAGE) == MAX_PARALLEL_COMPILERS
+        leakedTempFiles.isEmpty()
     }
 
+    // This can be re-enabled once scala compile task uses the worker api
+    @Ignore
     def "multiple tasks in a single build are multi-process safe"() {
         given:
         buildFile << scalaBuild
@@ -95,7 +101,8 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
         buildFile << isolatedZincCacheHome
         buildFile << blockUntilAllCompilersAreReady('$path')
         buildFile << userProvidedZincDirSystemProperty
-        expectTasksWithIntraProjectParallelExecuter()
+        buildFile << lockTimeoutLoggerListenerSource
+        expectTasksWithParallelExecuter()
 
         when:
         succeeds("build")
@@ -104,29 +111,41 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
         noExceptionThrown()
         zincCacheInterfaceJars.size() == 1
         configuredZincDirInterfaceJars.size() == 0
-        output.count(ZincScalaCompiler.ZINC_DIR_IGNORED_MESSAGE) == MAX_PARALLEL_COMPILERS
+        output.count(ZincScalaCompilerUtil.ZINC_DIR_IGNORED_MESSAGE) == MAX_PARALLEL_COMPILERS
+        leakedTempFiles.isEmpty()
     }
 
     def "multiple independent builds are multi-process safe" () {
         given:
+        def projects = (1..MAX_PARALLEL_COMPILERS)
+        projects.each {
+            def projectName = "project$it"
+            settingsFile << """
+                include '${projectName}Build'
+            """
+        }
         buildFile << """
             task buildAll
-            $parallelizableGradleBuildClass
         """
 
-        def projects = (1..MAX_PARALLEL_COMPILERS)
         projects.each {
             def projectName = "project$it"
             populateProject(projectName)
             projectBuildFile(projectName) << isolatedZincCacheHome
             projectBuildFile(projectName) << blockUntilAllCompilersAreReady(':$project.name:$name')
             projectBuildFile(projectName) << userProvidedZincDirSystemProperty
+            projectBuildFile(projectName) << lockTimeoutLoggerListenerSource
 
-            buildFile << gradleBuildTask(projectName)
+            buildFile << """
+                project(':${projectName}Build') {
+                    ${gradleBuildTask(projectName)}
+                }
+                buildAll.dependsOn ":${projectName}Build:${projectName}Build"
+            """
 
             compileTasks << ":${projectName}:compileMainJarMainScala".toString()
         }
-        expectTasksWithIntraProjectParallelExecuter()
+        expectTasksWithParallelExecuter()
 
         when:
         succeeds("buildAll")
@@ -135,7 +154,8 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
         noExceptionThrown()
         zincCacheInterfaceJars.size() == 1
         configuredZincDirInterfaceJars.size() == 0
-        output.count(ZincScalaCompiler.ZINC_DIR_IGNORED_MESSAGE) == MAX_PARALLEL_COMPILERS
+        output.count(ZincScalaCompilerUtil.ZINC_DIR_IGNORED_MESSAGE) == MAX_PARALLEL_COMPILERS
+        leakedTempFiles.isEmpty()
     }
 
     def "no warning shown when zinc dir is not set by user"() {
@@ -154,6 +174,7 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
                 $isolatedZincCacheHome
                 ${blockUntilAllCompilersAreReady('$path')}
             }
+            $lockTimeoutLoggerListenerSource
         """
         expectTasksWithParallelExecuter()
 
@@ -163,7 +184,8 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
         then:
         noExceptionThrown()
         zincCacheInterfaceJars.size() == 1
-        !output.contains(ZincScalaCompiler.ZINC_DIR_IGNORED_MESSAGE)
+        !output.contains(ZincScalaCompilerUtil.ZINC_DIR_IGNORED_MESSAGE)
+        leakedTempFiles.isEmpty()
     }
 
     GradleExecuter expectTasksWithParallelExecuter() {
@@ -173,10 +195,6 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
         // as this is the root of parallelism issues with the Zinc compiler
         return executer.withArgument("--parallel")
                        .withArgument("--max-workers=${MAX_PARALLEL_COMPILERS}")
-    }
-
-    GradleExecuter expectTasksWithIntraProjectParallelExecuter() {
-        return expectTasksWithParallelExecuter().withArgument("-D${DefaultTaskExecutionPlan.INTRA_PROJECT_TOGGLE}=true")
     }
 
     def getScalaBuild() {
@@ -190,6 +208,49 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
             }
 
         """
+    }
+
+    def getLockTimeoutLoggerListenerSource() {
+        return '''
+            class LockTimeoutLoggerListener extends TaskExecutionAdapter {
+                void afterExecute(Task task, TaskState state) {
+                    if(state.failure) {
+                        def lockTimeoutException = resolveCausalChain(state.failure).find { it.getClass().name == 'org.gradle.cache.internal.LockTimeoutException' }
+                        if (lockTimeoutException?.ownerPid && lockTimeoutException.ownerPid.toString().isNumber()) {
+                            def jstackOutput = dumpStacks(lockTimeoutException.ownerPid)
+                            if (jstackOutput) {
+                                println "jstack for lock owner pid ${lockTimeoutException.ownerPid}"
+                                println "-------------------------------------------"
+                                println jstackOutput
+                                println "-------------------------------------------"
+                            }
+                        }
+                    }
+                }
+
+                def resolveCausalChain(throwable) {
+                    def causes = []
+                    while (throwable != null) {
+                        causes.add(throwable);
+                        throwable = throwable.getCause();
+                    }
+                    causes
+                }
+
+                def dumpStacks(pid) {
+                    try {
+                        def jstackExecutable = org.gradle.internal.jvm.Jvm.current().getExecutable("jstack")
+                        if (jstackExecutable.isFile()) {
+                            return [jstackExecutable.getAbsolutePath(), pid].execute().text
+                        }
+                    } catch (Exception e) {
+                        // ignore
+                    }
+                    null
+                }
+            }
+            gradle.addListener(new LockTimeoutLoggerListener())
+        '''
     }
 
     def jvmComponent(String componentName) {
@@ -222,17 +283,21 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
     }
 
     Set<File> getZincCacheInterfaceJars() {
-        return findInterfaceJars(zincCacheHomeDir.file("caches/${GradleVersion.current().version}/zinc"))
+        return findInterfaceJars(zincCacheHomeDir.file("caches/${GradleVersion.current().version}/zinc-${DefaultScalaToolProvider.DEFAULT_ZINC_VERSION}"))
     }
 
     Set<File> getConfiguredZincDirInterfaceJars() {
         return findInterfaceJars(configuredZincDir)
     }
 
+    Set<File> getLeakedTempFiles() {
+        return zincCacheHomeDir.file("tmp").allDescendants().collect { file(it) }
+    }
+
     Set<File> findInterfaceJars(TestFile zincDir) {
         return zincDir.allDescendants()
             .collect { file(it) }
-            .findAll { it.name == "compiler-interface.jar" }
+            .findAll { it.name.startsWith("compiler-interface-") && it.name.endsWith(".jar") }
     }
 
     TestFile projectDir(String projectName) {
@@ -243,19 +308,10 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
         return projectDir(projectName).file("build.gradle")
     }
 
-    String getParallelizableGradleBuildClass() {
-        return """
-            @ParallelizableTask
-            class ParallelGradleBuild extends GradleBuild {
-
-            }
-        """
-    }
-
     String getIsolatedZincCacheHome() {
         return """
             tasks.withType(PlatformScalaCompile) {
-                options.forkOptions.jvmArgs += "-D${ZincScalaCompiler.ZINC_CACHE_HOME_DIR_SYSTEM_PROPERTY}=${TextUtil.normaliseFileSeparators(zincCacheHomeDir.absolutePath)}"
+                options.forkOptions.jvmArgs += "-D${ZincScalaCompilerUtil.ZINC_CACHE_HOME_DIR_SYSTEM_PROPERTY}=${TextUtil.normaliseFileSeparators(zincCacheHomeDir.absolutePath)}"
             }
         """
     }
@@ -284,13 +340,12 @@ class ScalaCompileParallelIntegrationTest extends AbstractIntegrationSpec {
     String gradleBuildTask(String projectName) {
         File projectDir = projectDir(projectName)
         return """
-                task("${projectName}Build", type: ParallelGradleBuild) {
+                task("${projectName}Build", type: GradleBuild) {
                     startParameter.searchUpwards = false
                     startParameter.projectDir = file("${TextUtil.normaliseFileSeparators(projectDir.absolutePath)}")
                     startParameter.currentDir = file("${TextUtil.normaliseFileSeparators(projectDir.absolutePath)}")
                     startParameter.taskNames = [ "build" ]
                 }
-                buildAll.dependsOn "${projectName}Build"
             """
     }
 

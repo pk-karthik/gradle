@@ -21,10 +21,14 @@ import org.gradle.integtests.fixtures.executer.ExecutionFailure
 import org.gradle.integtests.fixtures.executer.GradleHandle
 import org.gradle.launcher.daemon.fixtures.DaemonMultiJdkIntegrationTest
 import org.gradle.launcher.daemon.fixtures.JdkVendor
+import org.gradle.launcher.daemon.server.DaemonStateCoordinator
+import org.gradle.launcher.daemon.server.api.DaemonStoppedException
 import org.gradle.launcher.daemon.server.health.DaemonMemoryStatus
+import org.gradle.launcher.daemon.server.health.GcThrashingDaemonExpirationStrategy
 import org.gradle.soak.categories.SoakTest
 import org.gradle.test.fixtures.ConcurrentTestUtil
 import org.junit.experimental.categories.Category
+import spock.lang.Unroll
 
 import static org.junit.Assume.assumeTrue
 
@@ -39,17 +43,19 @@ class DaemonPerformanceMonitoringSoakTest extends DaemonMultiJdkIntegrationTest 
     def setup() {
         buildFile << "${logJdk()}"
 
-        // Set Java Home to dictate version
-        file("gradle.properties").writeProperties("org.gradle.java.home": jdk.javaHome.absolutePath)
-
         // Set JVM args for GC
-        String jvmArgs = file("gradle.properties").getProperties().getOrDefault("org.gradle.jvmargs", "")
-        file("gradle.properties").writeProperties("org.gradle.jvmargs": jvmArgs + " " + version.gc.jvmArgs)
+        String jvmArgs = ""
+        if (file('gradle.properties').exists()) {
+            jvmArgs = file("gradle.properties").getProperties().getOrDefault("org.gradle.jvmargs", "")
+        }
+        file("gradle.properties").writeProperties(
+            "org.gradle.java.home": jdk.javaHome.absolutePath,
+            "org.gradle.jvmargs": jvmArgs + " " + version.gc.jvmArgs
+        )
     }
 
-    def "when build leaks quickly daemon is expired eagerly"() {
-        assumeTrue(version.vendor != JdkVendor.IBM)
-
+    @Unroll
+    def "when build leaks slowly daemon is eventually expired (heap: #heap)"() {
         when:
         setupBuildScript = tenuredHeapLeak
         maxBuilds = builds
@@ -61,23 +67,7 @@ class DaemonPerformanceMonitoringSoakTest extends DaemonMultiJdkIntegrationTest 
 
         where:
         builds | heap    | rate
-        10     | "200m"  | 2800
-        10     | "1024m" | 15000
-    }
-
-    def "when build leaks slowly daemon is eventually expired"() {
-        when:
-        setupBuildScript = tenuredHeapLeak
-        maxBuilds = builds
-        heapSize = heap
-        leakRate = rate
-
-        then:
-        daemonIsExpiredEagerly()
-
-        where:
-        builds | heap    | rate
-        40     | "200m"  | 800
+        45     | "200m"  | 600
         40     | "1024m" | 4000
     }
 
@@ -129,7 +119,7 @@ class DaemonPerformanceMonitoringSoakTest extends DaemonMultiJdkIntegrationTest 
         }
 
         and:
-        daemons.daemon.log.contains("Daemon stopping because JVM tenured space is exhausted")
+        daemons.daemon.log.contains(DaemonStateCoordinator.DAEMON_WILL_STOP_MESSAGE)
     }
 
     def "when build leaks permgen space daemon is expired"() {
@@ -173,13 +163,13 @@ class DaemonPerformanceMonitoringSoakTest extends DaemonMultiJdkIntegrationTest 
         }
 
         and:
-        daemons.daemon.log.contains("Daemon stopping immediately because garbage collector is starting to thrash")
+        daemons.daemon.log.contains(DaemonStateCoordinator.DAEMON_STOPPING_IMMEDIATELY_MESSAGE)
 
         when:
         ExecutionFailure failure = gradle.waitForFailure()
 
         then:
-        failure.assertOutputContains("Gradle build daemon has been stopped: garbage collector is starting to thrash")
+        failure.assertOutputContains(DaemonStoppedException.MESSAGE + ": " + GcThrashingDaemonExpirationStrategy.EXPIRATION_REASON)
     }
 
     private boolean daemonIsExpiredEagerly() {
@@ -190,14 +180,15 @@ class DaemonPerformanceMonitoringSoakTest extends DaemonMultiJdkIntegrationTest 
             for (int i = 0; i < maxBuilds; i++) {
                 executer.noExtraLogging()
                 executer.withBuildJvmOpts("-D${DaemonMemoryStatus.ENABLE_PERFORMANCE_MONITORING}=true", "-Xmx${heapSize}", "-Dorg.gradle.daemon.performance.logging=true")
-                def r = run()
-                if (r.output.contains("Starting build in new daemon [memory: ")) {
+                GradleHandle gradle = executer.start()
+                gradle.waitForExit()
+                if (gradle.standardOutput ==~ /(?s).*Starting build in new daemon \[memory: [0-9].*/) {
                     newDaemons++;
                 }
                 if (newDaemons > 1) {
                     return true
                 }
-                def lines = r.output.readLines()
+                def lines = gradle.standardOutput.readLines()
                 dataFile << lines[lines.findLastIndexOf { it.startsWith "Starting" }]
                 dataFile << "  " + lines[lines.findLastIndexOf { it.contains "Total time:" }]
                 dataFile << "\n"
@@ -328,6 +319,6 @@ class DaemonPerformanceMonitoringSoakTest extends DaemonMultiJdkIntegrationTest 
     }
 
     String logJdk() {
-        return """logger.warn("Build is running with JDK: ${jdk.javaHome.absolutePath}")"""
+        return """logger.warn("Build is running with JDK: \${System.getProperty('java.home')}")"""
     }
 }

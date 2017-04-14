@@ -17,6 +17,7 @@
 package org.gradle.api.internal.project.taskfactory
 
 import org.gradle.api.DefaultTask
+import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Console
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
@@ -27,12 +28,13 @@ import org.gradle.api.tasks.OutputDirectories
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.OutputFiles
+import spock.lang.Issue
 import spock.lang.Specification
 
 import javax.inject.Inject
 
 class DefaultTaskClassInfoStoreTest extends Specification {
-    def taskClassInfoStore = new DefaultTaskClassInfoStore()
+    def taskClassInfoStore = new DefaultTaskClassInfoStore(new DefaultTaskClassValidatorExtractor())
 
     @SuppressWarnings("GrDeprecatedAPIUsage")
     private static class SimpleTask extends DefaultTask {
@@ -54,13 +56,30 @@ class DefaultTaskClassInfoStoreTest extends Specification {
 
         expect:
         !info.incremental
-        info.validator.validatedProperties*.name as Set == ["inputString", "inputFile", "inputDirectory", "inputFiles", "outputFile", "outputFiles", "outputDirectory", "outputDirectories"] as Set
+        !info.cacheable
+        info.validator.validatedProperties*.name.sort() == ["inputDirectory", "inputFile", "inputFiles", "inputString", "outputDirectories", "outputDirectory", "outputFile", "outputFiles"]
         info.nonAnnotatedPropertyNames.empty
+    }
+
+    @CacheableTask
+    private static class MyCacheableTask extends DefaultTask {}
+
+    def "cacheable tasks are detected"() {
+        expect:
+        taskClassInfoStore.getTaskClassInfo(MyCacheableTask).cacheable
+    }
+
+    private static class MyNonCacheableTask extends MyCacheableTask {}
+
+    def "cacheability is not inherited"() {
+        expect:
+        !taskClassInfoStore.getTaskClassInfo(MyNonCacheableTask).cacheable
     }
 
     private static class BaseTask extends DefaultTask {
         @Input String baseValue
         @Input String superclassValue
+        @Input String superclassValueWithDuplicateAnnotation
         String nonAnnotatedBaseValue
     }
 
@@ -68,6 +87,11 @@ class DefaultTaskClassInfoStoreTest extends Specification {
         @Override
         String getSuperclassValue() {
             return super.getSuperclassValue()
+        }
+
+        @Input @Override
+        String getSuperclassValueWithDuplicateAnnotation() {
+            return super.getSuperclassValueWithDuplicateAnnotation()
         }
 
         @Input @Override
@@ -81,7 +105,7 @@ class DefaultTaskClassInfoStoreTest extends Specification {
 
         expect:
         !info.incremental
-        info.validator.validatedProperties*.name as Set == ["baseValue", "superclassValue", "nonAnnotatedBaseValue"] as Set
+        info.validator.validatedProperties*.name.sort() == ["baseValue", "nonAnnotatedBaseValue", "superclassValue", "superclassValueWithDuplicateAnnotation"]
         info.nonAnnotatedPropertyNames.empty
     }
 
@@ -102,8 +126,8 @@ class DefaultTaskClassInfoStoreTest extends Specification {
 
         expect:
         !info.incremental
-        info.validator.validatedProperties*.name as Set == ["interfaceValue"] as Set
-        info.nonAnnotatedPropertyNames == [] as Set
+        info.validator.validatedProperties*.name.sort() == ["interfaceValue"]
+        info.nonAnnotatedPropertyNames.empty
     }
 
     private static class NonAnnotatedTask extends DefaultTask {
@@ -120,13 +144,40 @@ class DefaultTaskClassInfoStoreTest extends Specification {
 
         expect:
         !info.incremental
-        info.validator.validatedProperties*.name as Set == [] as Set
-        info.validator.nonAnnotatedPropertyNames == ["inputFile", "value"] as Set
+        info.validator.validatedProperties*.name.empty
+        info.validator.nonAnnotatedPropertyNames.sort() == ["inputFile", "value"]
     }
 
     def "class infos are cached"() {
         def info = taskClassInfoStore.getTaskClassInfo(SimpleTask)
         expect:
         info == taskClassInfoStore.getTaskClassInfo(SimpleTask)
+    }
+
+    @SuppressWarnings("GroovyUnusedDeclaration")
+    private static class IsGetterTask extends DefaultTask {
+        @Input
+        private boolean feature1
+        private boolean feature2
+
+        boolean isFeature1() {
+            return feature1
+        }
+        void setFeature1(boolean enabled) {
+            this.feature1 = enabled
+        }
+        boolean isFeature2() {
+            return feature2
+        }
+        void setFeature2(boolean enabled) {
+            this.feature2 = enabled
+        }
+    }
+
+    @Issue("https://issues.gradle.org/browse/GRADLE-2115")
+    def "annotation on private filed is recognized for is-getter"() {
+        def info = taskClassInfoStore.getTaskClassInfo(IsGetterTask)
+        expect:
+        info.validator.validatedProperties*.name as List == ["feature1"]
     }
 }

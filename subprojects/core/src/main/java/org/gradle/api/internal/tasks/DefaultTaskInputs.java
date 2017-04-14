@@ -15,116 +15,167 @@
  */
 package org.gradle.api.internal.tasks;
 
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
-import groovy.lang.Closure;
 import groovy.lang.GString;
-import org.gradle.api.Action;
+import org.gradle.api.Describable;
+import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.internal.TaskInputsInternal;
 import org.gradle.api.internal.TaskInternal;
+import org.gradle.api.internal.file.CompositeFileCollection;
 import org.gradle.api.internal.file.FileResolver;
-import org.gradle.api.internal.file.UnionFileCollection;
-import org.gradle.api.internal.file.collections.DefaultConfigurableFileCollection;
+import org.gradle.api.internal.file.collections.FileCollectionResolveContext;
 import org.gradle.api.tasks.TaskInputs;
-import org.gradle.util.ConfigureUtil;
+import org.gradle.util.DeprecationLogger;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.concurrent.Callable;
 
+import static org.gradle.api.internal.tasks.TaskPropertyUtils.ensurePropertiesHaveNames;
 import static org.gradle.util.GUtil.uncheckedCall;
 
 public class DefaultTaskInputs implements TaskInputsInternal {
-    private final DefaultConfigurableFileCollection inputFiles;
-    private final DefaultConfigurableFileCollection sourceFiles;
+    private final FileCollection allInputFiles;
+    private final FileCollection allSourceFiles;
     private final FileResolver resolver;
+    private final TaskInternal task;
     private final TaskMutator taskMutator;
     private final Map<String, Object> properties = new HashMap<String, Object>();
-    private Queue<Action<? super TaskInputs>> configureActions;
+    private final List<TaskInputPropertySpecAndBuilder> filePropertiesInternal = Lists.newArrayList();
+    private ImmutableSortedSet<TaskInputFilePropertySpec> fileProperties;
 
     public DefaultTaskInputs(FileResolver resolver, TaskInternal task, TaskMutator taskMutator) {
         this.resolver = resolver;
+        this.task = task;
         this.taskMutator = taskMutator;
-        inputFiles = new DefaultConfigurableFileCollection(task + " input files", resolver, null);
-        sourceFiles = new DefaultConfigurableFileCollection(task + " source files", resolver, null);
+        String taskName = task.getName();
+        this.allInputFiles = new TaskInputUnionFileCollection(taskName, "input", false, filePropertiesInternal);
+        this.allSourceFiles = new TaskInputUnionFileCollection(taskName, "source", true, filePropertiesInternal);
     }
 
+    @Override
     public boolean getHasInputs() {
-        return !inputFiles.getFrom().isEmpty() || !properties.isEmpty() || !sourceFiles.getFrom().isEmpty();
+        return !filePropertiesInternal.isEmpty() || !properties.isEmpty();
     }
 
+    @Override
     public FileCollection getFiles() {
-        return new UnionFileCollection(inputFiles, sourceFiles);
+        return allInputFiles;
     }
 
-    public TaskInputs files(final Object... paths) {
-        taskMutator.mutate("TaskInputs.files(Object...)", new Runnable() {
-            public void run() {
-                inputFiles.from(paths);
+    @Override
+    public ImmutableSortedSet<TaskInputFilePropertySpec> getFileProperties() {
+        if (fileProperties == null) {
+            ensurePropertiesHaveNames(filePropertiesInternal);
+            fileProperties = TaskPropertyUtils.<TaskInputFilePropertySpec>collectFileProperties("input", filePropertiesInternal.iterator());
+        }
+        return fileProperties;
+    }
+
+    @Override
+    public TaskInputFilePropertyBuilderInternal files(final Object... paths) {
+        return taskMutator.mutate("TaskInputs.files(Object...)", new Callable<TaskInputFilePropertyBuilderInternal>() {
+            @Override
+            public TaskInputFilePropertyBuilderInternal call() {
+                return addSpec(paths);
             }
         });
-        return this;
     }
 
-    public TaskInputs file(final Object path) {
-        taskMutator.mutate("TaskInputs.file(Object)", new Runnable() {
-            public void run() {
-                inputFiles.from(path);
+    @Override
+    public TaskInputFilePropertyBuilderInternal file(final Object path) {
+        return taskMutator.mutate("TaskInputs.file(Object)", new Callable<TaskInputFilePropertyBuilderInternal>() {
+            @Override
+            public TaskInputFilePropertyBuilderInternal call() {
+                return addSpec(path);
             }
         });
-        return this;
     }
 
-    public TaskInputs dir(final Object dirPath) {
-        taskMutator.mutate("TaskInputs.dir(Object)", new Runnable() {
-            public void run() {
-                inputFiles.from(resolver.resolveFilesAsTree(dirPath));
+    @Override
+    public TaskInputFilePropertyBuilderInternal dir(final Object dirPath) {
+        return taskMutator.mutate("TaskInputs.dir(Object)", new Callable<TaskInputFilePropertyBuilderInternal>() {
+            @Override
+            public TaskInputFilePropertyBuilderInternal call() {
+                return addSpec(resolver.resolveFilesAsTree(dirPath));
             }
         });
-        return this;
     }
 
+    @Override
     public boolean getHasSourceFiles() {
-        return !sourceFiles.getFrom().isEmpty();
+        for (TaskInputPropertySpecAndBuilder propertySpec : filePropertiesInternal) {
+            if (propertySpec.isSkipWhenEmpty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
+    @Override
     public FileCollection getSourceFiles() {
-        return sourceFiles;
+        return allSourceFiles;
     }
 
+    @Override
     public TaskInputs source(final Object... paths) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskInputs.source(Object...)", "Please use TaskInputs.files(Object...).skipWhenEmpty() instead.");
         taskMutator.mutate("TaskInputs.source(Object...)", new Runnable() {
+            @Override
             public void run() {
-                sourceFiles.from(paths);
+                addSpec(paths, true);
             }
         });
         return this;
     }
 
+    @Override
     public TaskInputs source(final Object path) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskInputs.source(Object)", "Please use TaskInputs.file(Object).skipWhenEmpty() instead.");
         taskMutator.mutate("TaskInputs.source(Object)", new Runnable() {
+            @Override
             public void run() {
-                sourceFiles.from(path);
+                addSpec(path, true);
             }
         });
         return this;
     }
 
+    @Override
     public TaskInputs sourceDir(final Object path) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskInputs.sourceDir(Object)", "Please use TaskInputs.dir(Object).skipWhenEmpty() instead.");
         taskMutator.mutate("TaskInputs.sourceDir(Object)", new Runnable() {
+            @Override
             public void run() {
-                sourceFiles.from(resolver.resolveFilesAsTree(path));
+                addSpec(resolver.resolveFilesAsTree(path), true);
             }
         });
         return this;
+    }
+
+    private TaskInputFilePropertyBuilderInternal addSpec(Object paths) {
+        return addSpec(paths, false);
+    }
+
+    private TaskInputFilePropertyBuilderInternal addSpec(Object paths, boolean skipWhenEmpty) {
+        DefaultTaskInputPropertySpec spec = new DefaultTaskInputPropertySpec(this, task.getName(), skipWhenEmpty, resolver, paths);
+        filePropertiesInternal.add(spec);
+        return spec;
     }
 
     public Map<String, Object> getProperties() {
         Map<String, Object> actualProperties = new HashMap<String, Object>();
         for (Map.Entry<String, Object> entry : properties.entrySet()) {
-            Object value = prepareValue(entry.getValue());
-            actualProperties.put(entry.getKey(), value);
+            String propertyName = entry.getKey();
+            try {
+                Object value = prepareValue(entry.getValue());
+                actualProperties.put(propertyName, value);
+            } catch (Exception ex) {
+                throw new InvalidUserDataException(String.format("Error while evaluating property '%s' of %s", propertyName, task), ex);
+            }
         }
         return actualProperties;
     }
@@ -165,31 +216,31 @@ public class DefaultTaskInputs implements TaskInputsInternal {
         return this;
     }
 
-    @Override
-    public TaskInputs configure(final Action<? super TaskInputs> action) {
-        taskMutator.mutate("TaskInputs.configure(Action)", new Runnable() {
-            public void run() {
-                if (configureActions == null) {
-                    configureActions = Lists.newLinkedList();
+    private static class TaskInputUnionFileCollection extends CompositeFileCollection implements Describable {
+        private final boolean skipWhenEmptyOnly;
+        private final String taskName;
+        private final String type;
+        private final List<TaskInputPropertySpecAndBuilder> filePropertiesInternal;
+
+        public TaskInputUnionFileCollection(String taskName, String type, boolean skipWhenEmptyOnly, List<TaskInputPropertySpecAndBuilder> filePropertiesInternal) {
+            this.taskName = taskName;
+            this.type = type;
+            this.skipWhenEmptyOnly = skipWhenEmptyOnly;
+            this.filePropertiesInternal = filePropertiesInternal;
+        }
+
+        @Override
+        public String getDisplayName() {
+            return "task '" + taskName + "' " + type + " files";
+        }
+
+        @Override
+        public void visitContents(FileCollectionResolveContext context) {
+            for (TaskInputPropertySpecAndBuilder fileProperty : filePropertiesInternal) {
+                if (!skipWhenEmptyOnly || fileProperty.isSkipWhenEmpty()) {
+                    context.add(fileProperty.getPropertyFiles());
                 }
-                configureActions.add(action);
             }
-        });
-        return this;
-    }
-
-    @Override
-    public TaskInputs configure(Closure action) {
-        return configure(ConfigureUtil.configureUsing(action));
-    }
-
-    @Override
-    public void ensureConfigured() {
-        if (configureActions != null) {
-            while (!configureActions.isEmpty()) {
-                configureActions.remove().execute(this);
-            }
-            configureActions = null;
         }
     }
 }

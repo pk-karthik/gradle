@@ -24,8 +24,11 @@ import com.google.common.base.Optional
 import org.gradle.api.resources.ResourceException
 import org.gradle.internal.credentials.DefaultAwsCredentials
 import org.gradle.internal.resource.transport.http.HttpProxySettings
+import org.gradle.util.Requires
 import spock.lang.Ignore
 import spock.lang.Specification
+
+import static org.gradle.util.TestPrecondition.FIX_TO_WORK_ON_JAVA9
 
 class S3ClientTest extends Specification {
     final S3ConnectionProperties s3ConnectionProperties = Mock()
@@ -35,6 +38,7 @@ class S3ClientTest extends Specification {
         _ * s3ConnectionProperties.getEndpoint() >> Optional.absent()
     }
 
+    @Requires(FIX_TO_WORK_ON_JAVA9)
     def "Should upload to s3"() {
         given:
         AmazonS3Client amazonS3Client = Mock()
@@ -63,7 +67,7 @@ class S3ClientTest extends Specification {
         secondListing.isTruncated() >> false
 
         when:
-        s3Client.list(uri)
+        s3Client.listDirectChildren(uri)
 
         then:
         1 * amazonS3Client.listObjects(_) >> firstListing
@@ -78,6 +82,20 @@ class S3ClientTest extends Specification {
 
         when:
         S3Client s3Client = new S3Client(credentials(), s3Properties)
+
+        then:
+        s3Client.amazonS3Client.clientOptions.pathStyleAccess == true
+        s3Client.amazonS3Client.endpoint == someEndpoint.get()
+    }
+
+    def "should apply endpoint override with path style access without credentials"() {
+        setup:
+        Optional<URI> someEndpoint = Optional.of(new URI("http://someEndpoint"))
+        S3ConnectionProperties s3Properties = Stub()
+        s3Properties.getEndpoint() >> someEndpoint
+
+        when:
+        S3Client s3Client = new S3Client(s3Properties)
 
         then:
         s3Client.amazonS3Client.clientOptions.pathStyleAccess == true
@@ -152,6 +170,7 @@ class S3ClientTest extends Specification {
         ex.message.startsWith("Could not get resource 'https://somehost/file.txt'")
     }
 
+    @Requires(FIX_TO_WORK_ON_JAVA9)
     def "should include uri when upload fails"() {
         AmazonS3Client amazonS3Client = Mock()
         URI uri = new URI("https://somehost/file.txt")

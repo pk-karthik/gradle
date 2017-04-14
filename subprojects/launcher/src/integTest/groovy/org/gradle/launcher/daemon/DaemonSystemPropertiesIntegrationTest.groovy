@@ -15,9 +15,9 @@
  */
 
 package org.gradle.launcher.daemon
-import org.gradle.api.JavaVersion
+
+import org.gradle.api.internal.cache.HeapProportionalCacheSizer
 import org.gradle.integtests.fixtures.daemon.DaemonIntegrationSpec
-import spock.lang.IgnoreIf
 import spock.lang.Issue
 
 @Issue("GRADLE-2460")
@@ -25,10 +25,12 @@ class DaemonSystemPropertiesIntegrationTest extends DaemonIntegrationSpec {
     def "standard and sun. client JVM system properties are not carried over to daemon JVM"() {
         given:
         file("build.gradle") << """
-task verify << {
-    assert System.getProperty("java.vendor") != "hollywood"
-    assert System.getProperty("java.vendor") != null
-    assert System.getProperty("sun.sunny") == null
+task verify {
+    doLast {
+        assert System.getProperty("java.vendor") != "hollywood"
+        assert System.getProperty("java.vendor") != null
+        assert System.getProperty("sun.sunny") == null
+    }
 }
         """
 
@@ -39,8 +41,10 @@ task verify << {
     def "other client JVM system properties are carried over to daemon JVM"() {
         given:
         file("build.gradle") << """
-task verify << {
-    assert System.getProperty("foo.bar") == "baz"
+task verify {
+    doLast {
+        assert System.getProperty("foo.bar") == "baz"
+    }
 }
         """
 
@@ -75,8 +79,6 @@ task verify << {
         daemons.daemons.size() == 2
     }
 
-    // Java 6 does not allow spaces in tmpdir folders
-    @IgnoreIf({ !JavaVersion.current().java7Compatible })
     def "forks new daemon when tmpdir is set to different value via commandline"() {
         setup:
         buildScript """
@@ -136,7 +138,6 @@ task verify << {
         daemons(gradleVersion).daemons.size() == 2
     }
 
-    @IgnoreIf({ !JavaVersion.current().java7Compatible })
     def "forks new daemon when tmpdir is set to different value via GRADLE_OPTS"() {
         setup:
         executer.requireGradleDistribution()
@@ -196,6 +197,36 @@ task verify << {
 
         then:
         output.contains("verified = anotherSecret")
+        daemons(gradleVersion).daemons.size() == 2
+    }
+
+    def "forks new daemon for changed cache reserved space sys property"() {
+        setup:
+        executer.requireGradleDistribution()
+        buildScript """
+            println "GRADLE_VERSION: " + gradle.gradleVersion
+
+            task verify {
+                doFirst {
+                    println "verified = " + System.getProperty('${HeapProportionalCacheSizer.CACHE_RESERVED_SYSTEM_PROPERTY}', 'none')
+                }
+            }
+        """
+
+        when:
+        run "verify"
+
+        then:
+        String gradleVersion = (output =~ /GRADLE_VERSION: (.*)/)[0][1]
+        daemons(gradleVersion).daemons.size() == 1
+        output.contains("verified = none")
+
+        when:
+        executer.withEnvironmentVars(GRADLE_OPTS: "-D${HeapProportionalCacheSizer.CACHE_RESERVED_SYSTEM_PROPERTY}=200");
+        run "verify"
+
+        then:
+        output.contains("verified = 200")
         daemons(gradleVersion).daemons.size() == 2
     }
 

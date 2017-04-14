@@ -19,6 +19,7 @@ package org.gradle.internal.component.model;
 import org.gradle.api.Nullable;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
+import org.gradle.api.internal.attributes.AttributesSchemaInternal;
 
 import java.util.Arrays;
 import java.util.List;
@@ -26,6 +27,8 @@ import java.util.Set;
 
 /**
  * The meta-data for a component instance that is required during dependency resolution.
+ *
+ * <p>Implementations of this type should be immutable and thread safe.</p>
  */
 public interface ComponentResolveMetadata {
     List<String> DEFAULT_STATUS_SCHEME = Arrays.asList("integration", "milestone", "release");
@@ -50,16 +53,23 @@ public interface ComponentResolveMetadata {
     ModuleSource getSource();
 
     /**
-     * Makes a copy of this meta-data with the given source.
+     * Returns the schema used by this component.
+     */
+    AttributesSchemaInternal getAttributesSchema();
+
+    /**
+     * Creates a copy of this meta-data with the given source.
      */
     ComponentResolveMetadata withSource(ModuleSource source);
 
-    List<DependencyMetadata> getDependencies();
+    List<? extends DependencyMetadata> getDependencies();
 
     /**
      * Returns the names of all of the configurations for this component.
      */
     Set<String> getConfigurationNames();
+
+    List<? extends ConfigurationMetadata> getConsumableConfigurationsHavingAttributes();
 
     /**
      * Locates the configuration with the given name, if any.

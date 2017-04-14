@@ -20,7 +20,7 @@ import org.gradle.api.Incubating;
 import java.io.File;
 
 /**
- * The result of successfully downloading an artifact.
+ * The result of successfully resolving an artifact.
  *
  * @since 2.0
  */
@@ -30,4 +30,9 @@ public interface ResolvedArtifactResult extends ArtifactResult {
      * The file for the artifact.
      */
     File getFile();
+
+    /**
+     * The variant that included this artifact.
+     */
+    ResolvedVariantResult getVariant();
 }

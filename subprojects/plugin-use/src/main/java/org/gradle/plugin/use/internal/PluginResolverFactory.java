@@ -16,13 +16,13 @@
 
 package org.gradle.plugin.use.internal;
 
-import com.google.common.collect.Iterables;
+import com.google.common.collect.ImmutableList;
 import org.gradle.api.internal.DocumentationRegistry;
 import org.gradle.api.internal.plugins.PluginRegistry;
 import org.gradle.internal.Factory;
-import org.gradle.plugin.repository.internal.PluginRepositoryRegistry;
 import org.gradle.plugin.repository.PluginRepository;
 import org.gradle.plugin.repository.internal.PluginRepositoryInternal;
+import org.gradle.plugin.repository.internal.PluginRepositoryRegistry;
 import org.gradle.plugin.use.resolve.internal.CompositePluginResolver;
 import org.gradle.plugin.use.resolve.internal.CorePluginResolver;
 import org.gradle.plugin.use.resolve.internal.NoopPluginResolver;
@@ -33,7 +33,7 @@ import org.gradle.plugin.use.resolve.service.internal.PluginResolutionServiceRes
 import java.util.LinkedList;
 import java.util.List;
 
-class PluginResolverFactory implements Factory<PluginResolver> {
+public class PluginResolverFactory implements Factory<PluginResolver> {
 
     private final PluginRegistry pluginRegistry;
     private final DocumentationRegistry documentationRegistry;
@@ -41,7 +41,7 @@ class PluginResolverFactory implements Factory<PluginResolver> {
     private final PluginRepositoryRegistry pluginRepositoryRegistry;
     private final InjectedClasspathPluginResolver injectedClasspathPluginResolver;
 
-    PluginResolverFactory(
+    public PluginResolverFactory(
         PluginRegistry pluginRegistry,
         DocumentationRegistry documentationRegistry,
         PluginResolutionServiceResolver pluginResolutionServiceResolver,
@@ -55,10 +55,15 @@ class PluginResolverFactory implements Factory<PluginResolver> {
         this.injectedClasspathPluginResolver = injectedClasspathPluginResolver;
     }
 
+    @Override
     public PluginResolver create() {
+        return new CompositePluginResolver(createDefaultResolvers());
+    }
+
+    private List<PluginResolver> createDefaultResolvers() {
         List<PluginResolver> resolvers = new LinkedList<PluginResolver>();
         addDefaultResolvers(resolvers);
-        return new CompositePluginResolver(resolvers);
+        return resolvers;
     }
 
     /**
@@ -86,14 +91,25 @@ class PluginResolverFactory implements Factory<PluginResolver> {
             resolvers.add(injectedClasspathPluginResolver);
         }
 
-        pluginRepositoryRegistry.lock();
-        for (PluginRepository pluginRepository : pluginRepositoryRegistry.getPluginRepositories()) {
-            PluginResolver resolver = ((PluginRepositoryInternal) pluginRepository).asResolver();
-            resolvers.add(resolver);
-        }
-
-        if (Iterables.isEmpty(pluginRepositoryRegistry.getPluginRepositories())) {
+        ImmutableList<? extends PluginRepository> pluginRepositories = getPluginRepositories();
+        if (pluginRepositories.isEmpty()) {
             resolvers.add(pluginResolutionServiceResolver);
+        } else {
+            addPluginRepositoryResolvers(resolvers, pluginRepositories);
         }
+    }
+
+    private ImmutableList<? extends PluginRepository> getPluginRepositories() {
+        return pluginRepositoryRegistry.getPluginRepositories();
+    }
+
+    private void addPluginRepositoryResolvers(List<PluginResolver> resolvers, ImmutableList<? extends PluginRepository> pluginRepositories) {
+        for (PluginRepository pluginRepository : pluginRepositories) {
+            resolvers.add(asResolver(pluginRepository));
+        }
+    }
+
+    private PluginResolver asResolver(PluginRepository pluginRepository) {
+        return ((PluginRepositoryInternal) pluginRepository).asResolver();
     }
 }

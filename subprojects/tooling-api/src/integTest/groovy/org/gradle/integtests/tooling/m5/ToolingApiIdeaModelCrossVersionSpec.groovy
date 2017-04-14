@@ -24,6 +24,7 @@ import org.gradle.tooling.model.idea.IdeaModule
 import org.gradle.tooling.model.idea.IdeaModuleDependency
 import org.gradle.tooling.model.idea.IdeaProject
 import org.gradle.tooling.model.idea.IdeaSingleEntryLibraryDependency
+import org.gradle.util.GradleVersion
 
 class ToolingApiIdeaModelCrossVersionSpec extends ToolingApiSpecification {
 
@@ -167,7 +168,7 @@ idea.module.excludeDirs += file('foo')
 
         def fakeRepo = file("repo")
 
-        def dependency = new MavenFileRepository(fakeRepo).module("foo.bar", "coolLib", 1.0)
+        def dependency = new MavenFileRepository(fakeRepo).module("foo.bar", "coolLib", "1.0")
         dependency.artifact(classifier: 'sources')
         dependency.artifact(classifier: 'javadoc')
         dependency.publish()
@@ -215,7 +216,11 @@ project(':impl') {
 
         IdeaModuleDependency mod = libs.find {it instanceof IdeaModuleDependency}
         mod.dependencyModule == project.modules.find { it.name == 'api'}
-        mod.scope.scope == 'COMPILE'
+        if (targetVersion >= GradleVersion.version("3.4")) {
+            mod.scope.scope == 'PROVIDED'
+        } else {
+            mod.scope.scope == 'COMPILE'
+        }
     }
 
     @TargetGradleVersion('>=1.2 <=2.7')
@@ -285,7 +290,6 @@ project(':impl') {
 
     def "offline model should not resolve external dependencies"() {
 
-
         file('build.gradle').text = """
 subprojects {
     apply plugin: 'java'
@@ -308,8 +312,13 @@ project(':impl') {
 
         then:
         def libs = impl.dependencies
-        libs.size() == 1
-        IdeaModuleDependency d = libs[0]
-        d.dependencyModule == project.modules.find { it.name == 'api' }
+        if (targetVersion >= GradleVersion.version("3.4")) {
+            libs.size() == 3
+        } else {
+            libs.size() == 1
+        }
+        libs.each {
+            it.dependencyModule == project.modules.find { it.name == 'api' }
+        }
     }
 }

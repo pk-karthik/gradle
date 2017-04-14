@@ -17,41 +17,33 @@
 package org.gradle.internal.classloader;
 
 import com.google.common.base.Charsets;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import org.gradle.api.Nullable;
 
 import java.util.Map;
+import java.util.WeakHashMap;
 
 public class ConfigurableClassLoaderHierarchyHasher implements ClassLoaderHierarchyHasher {
-    private static final byte[] UNKNOWN = "unknown".getBytes(Charsets.UTF_8);
     private final Map<ClassLoader, byte[]> knownClassLoaders;
     private final ClassLoaderHasher classLoaderHasher;
 
     public ConfigurableClassLoaderHierarchyHasher(Map<ClassLoader, String> knownClassLoaders, ClassLoaderHasher classLoaderHasher) {
         this.classLoaderHasher = classLoaderHasher;
-        ImmutableMap.Builder<ClassLoader, byte[]> hashesBuilder = ImmutableMap.builder();
+        Map<ClassLoader, byte[]> hashes = new WeakHashMap<ClassLoader, byte[]>();
         for (Map.Entry<ClassLoader, String> entry : knownClassLoaders.entrySet()) {
-            hashesBuilder.put(entry.getKey(), entry.getValue().getBytes(Charsets.UTF_8));
+            hashes.put(entry.getKey(), entry.getValue().getBytes(Charsets.UTF_8));
         }
-        this.knownClassLoaders = hashesBuilder.build();
-    }
-
-    @Override
-    public HashCode getLenientHash(ClassLoader classLoader) {
-        Visitor visitor = new Visitor();
-        visitor.visit(classLoader);
-        return visitor.getHash();
+        this.knownClassLoaders = hashes;
     }
 
     @Nullable
     @Override
-    public HashCode getStrictHash(ClassLoader classLoader) {
+    public HashCode getClassLoaderHash(ClassLoader classLoader) {
         Visitor visitor = new Visitor();
         visitor.visit(classLoader);
-        return visitor.hasUnknown() ? null : visitor.getHash();
+        return visitor.getHash();
     }
 
     private class Visitor extends ClassLoaderVisitor {
@@ -66,11 +58,7 @@ public class ConfigurableClassLoaderHierarchyHasher implements ClassLoaderHierar
         }
 
         public HashCode getHash() {
-            return hasher.hash();
-        }
-
-        public boolean hasUnknown() {
-            return foundUnknown;
+            return foundUnknown ? null : hasher.hash();
         }
 
         private boolean addToHash(ClassLoader cl) {
@@ -87,9 +75,8 @@ public class ConfigurableClassLoaderHierarchyHasher implements ClassLoaderHierar
                 hasher.putBytes(hash.asBytes());
                 return true;
             }
-            hasher.putBytes(UNKNOWN);
             foundUnknown = true;
-            return true;
+            return false;
         }
     }
 }

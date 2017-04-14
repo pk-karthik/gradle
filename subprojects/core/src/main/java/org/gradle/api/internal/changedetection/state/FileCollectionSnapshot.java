@@ -16,52 +16,38 @@
 
 package org.gradle.api.internal.changedetection.state;
 
-import org.gradle.api.file.FileCollection;
-import org.gradle.util.ChangeListener;
+import org.gradle.api.internal.changedetection.rules.TaskStateChange;
 
 import java.io.File;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.Map;
-import java.util.Set;
+
+import static org.gradle.api.internal.changedetection.state.TaskFilePropertyCompareStrategy.UNORDERED;
 
 /**
- * An immutable snapshot of the contents and meta-data of a collection of files or directories.
+ * An immutable snapshot of some aspects of the contents and meta-data of a collection of files or directories.
  */
-public interface FileCollectionSnapshot {
-    enum ChangeFilter {
-        IgnoreAddedFiles
-    }
+public interface FileCollectionSnapshot extends Snapshot {
+    FileCollectionSnapshot EMPTY = new DefaultFileCollectionSnapshot(Collections.<String, NormalizedFileSnapshot>emptyMap(), UNORDERED, true);
 
     boolean isEmpty();
 
     /**
      * Returns an iterator over the changes to file contents since the given snapshot, subject to the given filters.
-     *
-     * <p>Note: Ignores changes to file meta-data, such as last modified time. This should be made a {@link ChangeFilter} at some point.
      */
-    ChangeIterator<String> iterateContentChangesSince(FileCollectionSnapshot oldSnapshot, Set<ChangeFilter> filters);
+    Iterator<TaskStateChange> iterateContentChangesSince(FileCollectionSnapshot oldSnapshot, String title);
 
+    /**
+     * Returns the elements of this snapshot, including regular files, directories and missing files
+     */
+    Collection<File> getElements();
+
+    /**
+     * Returns the regular files that make up this snapshot.
+     */
     Collection<File> getFiles();
 
-    Map<String, IncrementalFileSnapshot> getSnapshots();
-
-    FilesSnapshotSet getSnapshot();
-
-    interface ChangeIterator<T> {
-        boolean next(ChangeListener<T> listener);
-    }
-
-    interface PreCheck {
-        Integer getHash();
-
-        FileCollection getFiles();
-
-        Collection<VisitedTree> getVisitedTrees();
-
-        Collection<File> getMissingFiles();
-
-        boolean isEmpty();
-    }
-
-    Collection<Long> getTreeSnapshotIds();
+    Map<String, NormalizedFileSnapshot> getSnapshots();
 }

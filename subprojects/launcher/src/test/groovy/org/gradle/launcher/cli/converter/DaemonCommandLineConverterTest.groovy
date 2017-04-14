@@ -43,6 +43,50 @@ class DaemonCommandLineConverterTest extends Specification {
         ['--no-daemon', '--daemon']     | true
     }
 
+    @Unroll
+    def "can convert foreground option - #options"() {
+        when:
+        def converted = convert(options)
+
+        then:
+        converted.foreground == foregound
+
+        where:
+        options                         | foregound
+        []                              | false
+        ['--foreground']                | true
+        ['--foreground', '--no-daemon'] | true
+        ['--foreground', '--daemon']    | true
+    }
+
+    @Unroll
+    def "can convert stop option - #options"() {
+        when:
+        def converted = convert(options)
+
+        then:
+        converted.stop == stop
+
+        where:
+        options     | stop
+        []          | false
+        ['--stop']  | true
+    }
+
+    @Unroll
+    def "can convert status option - #options"() {
+        when:
+        def converted = convert(options)
+
+        then:
+        converted.status == status
+
+        where:
+        options       | status
+        []            | false
+        ['--status']  | true
+    }
+
     private DaemonParameters convert(Iterable args) {
         CommandLineParser parser = new CommandLineParser()
         def converter = new DaemonCommandLineConverter()

@@ -18,9 +18,14 @@ package org.gradle.api.internal.artifacts.ivyservice.ivyresolve.parser;
 
 import com.google.common.collect.Lists;
 import org.apache.ivy.core.module.descriptor.DefaultModuleDescriptor;
+import org.gradle.api.artifacts.ModuleVersionIdentifier;
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
+import org.gradle.api.internal.artifacts.ImmutableModuleIdentifierFactory;
 import org.gradle.internal.component.external.descriptor.Artifact;
+import org.gradle.internal.component.external.descriptor.Configuration;
 import org.gradle.internal.component.external.descriptor.ModuleDescriptorState;
-import org.gradle.internal.component.external.model.DefaultIvyModuleResolveMetadata;
+import org.gradle.internal.component.external.model.DefaultMutableIvyModuleResolveMetadata;
+import org.gradle.internal.component.external.model.IvyDependencyMetadata;
 import org.gradle.internal.component.model.IvyArtifactName;
 
 import java.util.List;
@@ -29,20 +34,32 @@ import java.util.Set;
 class IvyModuleResolveMetaDataBuilder {
     private final List<Artifact> artifacts = Lists.newArrayList();
     private final DefaultModuleDescriptor ivyDescriptor;
+    private final IvyModuleDescriptorConverter converter;
+    private final ImmutableModuleIdentifierFactory moduleIdentifierFactory;
 
-    public IvyModuleResolveMetaDataBuilder(DefaultModuleDescriptor module) {
+    public IvyModuleResolveMetaDataBuilder(DefaultModuleDescriptor module, IvyModuleDescriptorConverter converter, ImmutableModuleIdentifierFactory moduleIdentifierFactory) {
         this.ivyDescriptor = module;
+        this.converter = converter;
+        this.moduleIdentifierFactory = moduleIdentifierFactory;
     }
 
     public void addArtifact(IvyArtifactName newArtifact, Set<String> configurations) {
         artifacts.add(new Artifact(newArtifact, configurations));
     }
 
-    public DefaultIvyModuleResolveMetadata build() {
-        ModuleDescriptorState descriptorState = IvyModuleDescriptorConverter.forIvyModuleDescriptor(ivyDescriptor);
+    public List<Artifact> getArtifacts() {
+        return artifacts;
+    }
+
+    public DefaultMutableIvyModuleResolveMetadata build() {
+        ModuleDescriptorState descriptorState = converter.forIvyModuleDescriptor(ivyDescriptor);
         for (Artifact artifact : artifacts) {
             descriptorState.addArtifact(artifact.getArtifactName(), artifact.getConfigurations());
         }
-        return new DefaultIvyModuleResolveMetadata(descriptorState.getComponentIdentifier(), descriptorState);
+        List<Configuration> configurations = converter.extractConfigurations(ivyDescriptor);
+        List<IvyDependencyMetadata> dependencies = converter.extractDependencies(ivyDescriptor);
+        ModuleComponentIdentifier cid = descriptorState.getComponentIdentifier();
+        ModuleVersionIdentifier mvi = moduleIdentifierFactory.moduleWithVersion(cid.getGroup(), cid.getModule(), cid.getVersion());
+        return new DefaultMutableIvyModuleResolveMetadata(mvi, cid, descriptorState, configurations, dependencies);
     }
 }

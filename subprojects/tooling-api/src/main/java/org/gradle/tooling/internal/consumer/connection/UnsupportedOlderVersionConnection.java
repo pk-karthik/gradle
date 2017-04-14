@@ -18,7 +18,6 @@ package org.gradle.tooling.internal.consumer.connection;
 
 import org.gradle.tooling.BuildAction;
 import org.gradle.tooling.UnsupportedVersionException;
-import org.gradle.tooling.connection.ModelResult;
 import org.gradle.tooling.internal.adapter.ProtocolToModelAdapter;
 import org.gradle.tooling.internal.build.VersionOnlyBuildEnvironment;
 import org.gradle.tooling.internal.consumer.TestExecutionRequest;
@@ -31,7 +30,7 @@ import org.gradle.tooling.model.internal.Exceptions;
 /**
  * An adapter for unsupported connection using a {@code ConnectionVersion4} based provider.
  *
- * <p>Used for providers >= 1.0-milestone-3 and <= 1.0-milestone-7.</p>
+ * <p>Used for providers >= 1.0-milestone-3 and <= 1.2.</p>
  */
 public class UnsupportedOlderVersionConnection implements ConsumerConnection {
     private final ProtocolToModelAdapter adapter;
@@ -70,8 +69,4 @@ public class UnsupportedOlderVersionConnection implements ConsumerConnection {
         throw Exceptions.unsupportedFeature(operationParameters.getEntryPointName(), version, "2.6");
     }
 
-    @Override
-    public <T> Iterable<ModelResult<T>> buildModels(Class<T> elementType, ConsumerOperationParameters operationParameters) throws UnsupportedOperationException, IllegalStateException {
-        throw Exceptions.unsupportedFeature(operationParameters.getEntryPointName(), version, "2.14");
-    }
 }

@@ -28,7 +28,7 @@ import org.gradle.authentication.Authentication;
 import org.gradle.internal.Actions;
 import org.gradle.internal.resource.ResourceExceptions;
 import org.gradle.internal.resource.transport.http.*;
-import org.gradle.plugin.use.internal.PluginRequest;
+import org.gradle.plugin.management.internal.PluginRequestInternal;
 import org.gradle.util.GradleVersion;
 
 import java.io.IOException;
@@ -59,7 +59,7 @@ public class HttpPluginResolutionServiceClient implements PluginResolutionServic
     }
 
     @Nullable
-    public Response<PluginUseMetaData> queryPluginMetadata(String portalUrl, boolean shouldValidate, final PluginRequest pluginRequest) {
+    public Response<PluginUseMetaData> queryPluginMetadata(String portalUrl, boolean shouldValidate, final PluginRequestInternal pluginRequest) {
         String escapedId = PATH_SEGMENT_ESCAPER.escape(pluginRequest.getId().toString());
         String escapedPluginVersion = PATH_SEGMENT_ESCAPER.escape(pluginRequest.getVersion());
         final String requestUrl = toRequestUrl(portalUrl, String.format(PLUGIN_USE_REQUEST_URL, escapedId, escapedPluginVersion));
@@ -83,7 +83,7 @@ public class HttpPluginResolutionServiceClient implements PluginResolutionServic
         final URI requestUri = toUri(requestUrl, "plugin request");
 
         try {
-            HttpResponseResource response = getResourceAccessor().getRawResource(requestUri);
+            HttpResponseResource response = getResourceAccessor().getRawResource(requestUri, false);
             try {
                 final int statusCode = response.getStatusCode();
                 String contentType = response.getContentType();

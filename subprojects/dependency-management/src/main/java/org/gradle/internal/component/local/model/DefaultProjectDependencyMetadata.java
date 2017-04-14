@@ -17,27 +17,100 @@
 package org.gradle.internal.component.local.model;
 
 import org.gradle.api.artifacts.ModuleVersionSelector;
+import org.gradle.api.artifacts.component.ComponentSelector;
 import org.gradle.api.artifacts.component.ProjectComponentSelector;
-import org.gradle.internal.component.model.DefaultDependencyMetadata;
+import org.gradle.api.internal.attributes.AttributesSchemaInternal;
+import org.gradle.internal.component.model.ComponentArtifactMetadata;
+import org.gradle.internal.component.model.ComponentResolveMetadata;
+import org.gradle.internal.component.model.ConfigurationMetadata;
+import org.gradle.internal.component.model.DependencyMetadata;
 import org.gradle.internal.component.model.Exclude;
 import org.gradle.internal.component.model.IvyArtifactName;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
-public class DefaultProjectDependencyMetadata extends DefaultDependencyMetadata {
-    private final String projectPath;
+public class DefaultProjectDependencyMetadata implements DependencyMetadata {
+    private final ProjectComponentSelector selector;
+    private final DependencyMetadata delegate;
 
-    public DefaultProjectDependencyMetadata(String projectPath, ModuleVersionSelector requested, Map<String, List<String>> confs,
-                                            Map<IvyArtifactName, Set<String>> dependencyArtifacts, Map<Exclude, Set<String>> excludeRules,
-                                            String dynamicConstraintVersion, boolean changing, boolean transitive) {
-        super(requested, confs, dependencyArtifacts, excludeRules, dynamicConstraintVersion, changing, transitive);
-        this.projectPath = projectPath;
+    public DefaultProjectDependencyMetadata(ProjectComponentSelector selector, DependencyMetadata delegate) {
+        this.selector = selector;
+        this.delegate = delegate;
     }
 
     @Override
     public ProjectComponentSelector getSelector() {
-        return new DefaultProjectComponentSelector(projectPath);
+        return selector;
+    }
+
+    @Override
+    public List<Exclude> getExcludes() {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public List<Exclude> getExcludes(Collection<String> configurations) {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public ModuleVersionSelector getRequested() {
+        return delegate.getRequested();
+    }
+
+    @Override
+    public DependencyMetadata withRequestedVersion(String requestedVersion) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public DependencyMetadata withTarget(ComponentSelector target) {
+        if (target.equals(selector)) {
+            return this;
+        }
+        return delegate.withTarget(target);
+    }
+
+    @Override
+    public boolean isChanging() {
+        return delegate.isChanging();
+    }
+
+    @Override
+    public boolean isForce() {
+        return delegate.isForce();
+    }
+
+    @Override
+    public boolean isTransitive() {
+        return delegate.isTransitive();
+    }
+
+    @Override
+    public Set<String> getModuleConfigurations() {
+        return delegate.getModuleConfigurations();
+    }
+
+    @Override
+    public String getDynamicConstraintVersion() {
+        return delegate.getDynamicConstraintVersion();
+    }
+
+    @Override
+    public Set<ConfigurationMetadata> selectConfigurations(ComponentResolveMetadata fromComponent, ConfigurationMetadata fromConfiguration, ComponentResolveMetadata targetComponent, AttributesSchemaInternal consumerSchema) {
+        return delegate.selectConfigurations(fromComponent, fromConfiguration, targetComponent, consumerSchema);
+    }
+
+    @Override
+    public Set<ComponentArtifactMetadata> getArtifacts(ConfigurationMetadata fromConfiguration, ConfigurationMetadata toConfiguration) {
+        return delegate.getArtifacts(fromConfiguration, toConfiguration);
+    }
+
+    @Override
+    public Set<IvyArtifactName> getArtifacts() {
+        return delegate.getArtifacts();
     }
 }

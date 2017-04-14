@@ -50,7 +50,7 @@ class DependencyMetaDataCrossVersionSpec extends ToolingApiSpecification {
 
     private void prepareBuild() {
         def fakeRepo = file("repo")
-        new MavenFileRepository(fakeRepo).module("foo.bar", "coolLib", 2.0).publish()
+        new MavenFileRepository(fakeRepo).module("foo.bar", "coolLib", "2.0").publish()
 
         file("yetAnotherJar.jar").createFile()
 
@@ -70,8 +70,6 @@ dependencies {
     }
 
     private void containModuleInfo(libs) {
-        assert libs.size() == 3
-
         ExternalDependency coolLib = libs.find { it.file.name == 'coolLib-2.0.jar' }
         assert coolLib.gradleModuleVersion
         assert coolLib.gradleModuleVersion.group == 'foo.bar'

@@ -17,8 +17,9 @@ package org.gradle.api.internal.artifacts.repositories;
 
 import com.google.common.collect.Lists;
 import org.gradle.api.InvalidUserDataException;
-import org.gradle.api.artifacts.repositories.MavenArtifactRepository;
 import org.gradle.api.artifacts.repositories.AuthenticationContainer;
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository;
+import org.gradle.api.internal.artifacts.ImmutableModuleIdentifierFactory;
 import org.gradle.api.internal.artifacts.ModuleVersionPublisher;
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.ConfiguredModuleComponentRepository;
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.parser.MetaDataParser;
@@ -26,8 +27,9 @@ import org.gradle.api.internal.artifacts.repositories.resolver.MavenResolver;
 import org.gradle.api.internal.artifacts.repositories.transport.RepositoryTransport;
 import org.gradle.api.internal.artifacts.repositories.transport.RepositoryTransportFactory;
 import org.gradle.api.internal.file.FileResolver;
-import org.gradle.internal.component.external.model.DefaultMavenModuleResolveMetadata;
+import org.gradle.internal.component.external.model.ModuleComponentArtifactIdentifier;
 import org.gradle.internal.component.external.model.ModuleComponentArtifactMetadata;
+import org.gradle.internal.component.external.model.MutableMavenModuleResolveMetadata;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.resource.local.FileStore;
 import org.gradle.internal.resource.local.LocallyAvailableResourceFinder;
@@ -44,21 +46,27 @@ public class DefaultMavenArtifactRepository extends AbstractAuthenticationSuppor
     private Object url;
     private List<Object> additionalUrls = new ArrayList<Object>();
     private final LocallyAvailableResourceFinder<ModuleComponentArtifactMetadata> locallyAvailableResourceFinder;
-    private final FileStore<ModuleComponentArtifactMetadata> artifactFileStore;
-    private final MetaDataParser<DefaultMavenModuleResolveMetadata> pomParser;
+    private final FileStore<ModuleComponentArtifactIdentifier> artifactFileStore;
+    private final MetaDataParser<MutableMavenModuleResolveMetadata> pomParser;
+    private final ImmutableModuleIdentifierFactory moduleIdentifierFactory;
+    private final FileStore<String> resourcesFileStore;
 
     public DefaultMavenArtifactRepository(FileResolver fileResolver, RepositoryTransportFactory transportFactory,
                                           LocallyAvailableResourceFinder<ModuleComponentArtifactMetadata> locallyAvailableResourceFinder,
                                           Instantiator instantiator,
-                                          FileStore<ModuleComponentArtifactMetadata> artifactFileStore,
-                                          MetaDataParser<DefaultMavenModuleResolveMetadata> pomParser,
-                                          AuthenticationContainer authenticationContainer) {
+                                          FileStore<ModuleComponentArtifactIdentifier> artifactFileStore,
+                                          MetaDataParser<MutableMavenModuleResolveMetadata> pomParser,
+                                          AuthenticationContainer authenticationContainer,
+                                          ImmutableModuleIdentifierFactory moduleIdentifierFactory,
+                                          FileStore<String> resourcesFileStore) {
         super(instantiator, authenticationContainer);
         this.fileResolver = fileResolver;
         this.transportFactory = transportFactory;
         this.locallyAvailableResourceFinder = locallyAvailableResourceFinder;
         this.artifactFileStore = artifactFileStore;
         this.pomParser = pomParser;
+        this.moduleIdentifierFactory = moduleIdentifierFactory;
+        this.resourcesFileStore = resourcesFileStore;
     }
 
     public URI getUrl() {
@@ -109,14 +117,14 @@ public class DefaultMavenArtifactRepository extends AbstractAuthenticationSuppor
 
     private MavenResolver createResolver(URI rootUri) {
         RepositoryTransport transport = getTransport(rootUri.getScheme());
-        return new MavenResolver(getName(), rootUri, transport, locallyAvailableResourceFinder, artifactFileStore, pomParser);
+        return new MavenResolver(getName(), rootUri, transport, locallyAvailableResourceFinder, artifactFileStore, pomParser, moduleIdentifierFactory, transport.getResourceAccessor(), resourcesFileStore);
     }
 
-    public MetaDataParser<DefaultMavenModuleResolveMetadata> getPomParser() {
+    public MetaDataParser<MutableMavenModuleResolveMetadata> getPomParser() {
         return pomParser;
     }
 
-    protected FileStore<ModuleComponentArtifactMetadata> getArtifactFileStore() {
+    protected FileStore<ModuleComponentArtifactIdentifier> getArtifactFileStore() {
         return artifactFileStore;
     }
 

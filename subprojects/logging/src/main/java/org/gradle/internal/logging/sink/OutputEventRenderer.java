@@ -20,27 +20,34 @@ import net.jcip.annotations.ThreadSafe;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.StandardOutputListener;
 import org.gradle.api.logging.configuration.ConsoleOutput;
-import org.gradle.internal.TrueTimeProvider;
 import org.gradle.internal.event.ListenerBroadcast;
 import org.gradle.internal.logging.config.LoggingRouter;
 import org.gradle.internal.logging.console.AnsiConsole;
+import org.gradle.internal.logging.console.BuildStatusRenderer;
 import org.gradle.internal.logging.console.ColorMap;
 import org.gradle.internal.logging.console.Console;
-import org.gradle.internal.logging.console.ConsoleBackedProgressRenderer;
+import org.gradle.internal.logging.console.ConsoleLayoutCalculator;
 import org.gradle.internal.logging.console.DefaultColorMap;
-import org.gradle.internal.logging.console.DefaultStatusBarFormatter;
+import org.gradle.internal.logging.console.DefaultWorkInProgressFormatter;
 import org.gradle.internal.logging.console.StyledTextOutputBackedRenderer;
+import org.gradle.internal.logging.console.ThrottlingOutputEventListener;
+import org.gradle.internal.logging.console.WorkInProgressRenderer;
 import org.gradle.internal.logging.events.EndOutputEvent;
 import org.gradle.internal.logging.events.LogLevelChangeEvent;
+import org.gradle.internal.logging.events.MaxWorkerCountChangeEvent;
 import org.gradle.internal.logging.events.OutputEvent;
 import org.gradle.internal.logging.events.OutputEventListener;
 import org.gradle.internal.logging.text.StreamBackedStandardOutputListener;
 import org.gradle.internal.logging.text.StreamingStyledTextOutput;
 import org.gradle.internal.nativeintegration.console.ConsoleMetaData;
 import org.gradle.internal.nativeintegration.console.FallbackConsoleMetaData;
+import org.gradle.internal.time.TimeProvider;
+import org.gradle.internal.time.TrueTimeProvider;
 
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A {@link OutputEventListener} implementation which renders output events to various
@@ -53,8 +60,10 @@ public class OutputEventRenderer implements OutputEventListener, LoggingRouter {
     private final ListenerBroadcast<StandardOutputListener> stderrListeners = new ListenerBroadcast<StandardOutputListener>(StandardOutputListener.class);
     private final Object lock = new Object();
     private final DefaultColorMap colourMap = new DefaultColorMap();
-    private LogLevel logLevel = LogLevel.LIFECYCLE;
+    private final AtomicReference<LogLevel> logLevel = new AtomicReference<LogLevel>(LogLevel.LIFECYCLE);
+    private final AtomicInteger maxWorkerCount = new AtomicInteger();
     private final ConsoleConfigureAction consoleConfigureAction;
+    private final TimeProvider timeProvider;
     private OutputStream originalStdOut;
     private OutputStream originalStdErr;
     private StreamBackedStandardOutputListener stdOutListener;
@@ -62,18 +71,23 @@ public class OutputEventRenderer implements OutputEventListener, LoggingRouter {
     private OutputEventListener console;
 
     public OutputEventRenderer() {
+        this(new TrueTimeProvider());
+    }
+
+    OutputEventRenderer(TimeProvider timeProvider) {
         OutputEventListener stdOutChain = onNonError(new ProgressLogEventGenerator(new StyledTextOutputBackedRenderer(new StreamingStyledTextOutput(stdoutListeners.getSource())), false));
         formatters.add(stdOutChain);
         OutputEventListener stdErrChain = onError(new ProgressLogEventGenerator(new StyledTextOutputBackedRenderer(new StreamingStyledTextOutput(stderrListeners.getSource())), false));
         formatters.add(stdErrChain);
         this.consoleConfigureAction = new ConsoleConfigureAction();
+        this.timeProvider = timeProvider;
     }
 
     @Override
     public Snapshot snapshot() {
         synchronized (lock) {
             // Currently only snapshot the console output listener. Should snapshot all output listeners, and cleanup in restore()
-            return new SnapshotImpl(logLevel, console);
+            return new SnapshotImpl(logLevel.get(), console, maxWorkerCount.get());
         }
     }
 
@@ -81,8 +95,12 @@ public class OutputEventRenderer implements OutputEventListener, LoggingRouter {
     public void restore(Snapshot state) {
         synchronized (lock) {
             SnapshotImpl snapshot = (SnapshotImpl) state;
-            if (snapshot.logLevel != logLevel) {
+            if (snapshot.logLevel != logLevel.get()) {
                 configure(snapshot.logLevel);
+            }
+
+            if (snapshot.maxWorkerCount != maxWorkerCount.get()) {
+                configureMaxWorkerCount(snapshot.maxWorkerCount);
             }
             // TODO - also close console when it is replaced
             // TODO - remove console from formatters
@@ -118,9 +136,10 @@ public class OutputEventRenderer implements OutputEventListener, LoggingRouter {
 
     public void attachAnsiConsole(OutputStream outputStream) {
         synchronized (lock) {
+            ConsoleMetaData consoleMetaData = new FallbackConsoleMetaData();
             OutputStreamWriter writer = new OutputStreamWriter(outputStream);
-            Console console = new AnsiConsole(writer, writer, colourMap, true);
-            addConsole(console, true, true, new FallbackConsoleMetaData());
+            Console console = new AnsiConsole(writer, writer, colourMap, consoleMetaData, true);
+            addConsole(console, true, true, consoleMetaData);
         }
     }
 
@@ -182,12 +201,14 @@ public class OutputEventRenderer implements OutputEventListener, LoggingRouter {
     }
 
     public OutputEventRenderer addConsole(Console console, boolean stdout, boolean stderr, ConsoleMetaData consoleMetaData) {
-        final OutputEventListener consoleChain = new ConsoleBackedProgressRenderer(
-            new ProgressLogEventGenerator(
-                new StyledTextOutputBackedRenderer(console.getMainArea()), true),
-            console,
-            new DefaultStatusBarFormatter(consoleMetaData),
-            new TrueTimeProvider());
+        final OutputEventListener consoleChain = new ThrottlingOutputEventListener(
+             new BuildStatusRenderer(
+                new WorkInProgressRenderer(
+                    new ProgressLogEventGenerator(
+                        new StyledTextOutputBackedRenderer(console.getBuildOutputArea()), true),
+                    console.getBuildProgressArea(), new DefaultWorkInProgressFormatter(consoleMetaData), new ConsoleLayoutCalculator(consoleMetaData)),
+                console.getStatusBar(), console, consoleMetaData, timeProvider),
+            timeProvider);
         synchronized (lock) {
             if (stdout && stderr) {
                 this.console = consoleChain;
@@ -200,7 +221,8 @@ public class OutputEventRenderer implements OutputEventListener, LoggingRouter {
                 this.console = onError(consoleChain);
                 removeStandardErrorListener();
             }
-            consoleChain.onOutput(new LogLevelChangeEvent(logLevel));
+            consoleChain.onOutput(new LogLevelChangeEvent(logLevel.get()));
+            consoleChain.onOutput(new MaxWorkerCountChangeEvent(maxWorkerCount.get()));
             formatters.add(this.console);
         }
         return this;
@@ -263,30 +285,45 @@ public class OutputEventRenderer implements OutputEventListener, LoggingRouter {
         onOutput(new LogLevelChangeEvent(logLevel));
     }
 
+    @Override
+    public void configureMaxWorkerCount(int maxWorkerCount) {
+        onOutput(new MaxWorkerCountChangeEvent(maxWorkerCount));
+    }
+
+    @Override
     public void onOutput(OutputEvent event) {
-        synchronized (lock) {
-            if (event.getLogLevel() != null && event.getLogLevel().compareTo(logLevel) < 0) {
+        if (event.getLogLevel() != null && event.getLogLevel().compareTo(logLevel.get()) < 0) {
+            return;
+        }
+        if (event instanceof LogLevelChangeEvent) {
+            LogLevelChangeEvent changeEvent = (LogLevelChangeEvent) event;
+            LogLevel newLogLevel = changeEvent.getNewLogLevel();
+            if (newLogLevel == this.logLevel.get()) {
                 return;
             }
-            if (event instanceof LogLevelChangeEvent) {
-                LogLevelChangeEvent changeEvent = (LogLevelChangeEvent) event;
-                LogLevel newLogLevel = changeEvent.getNewLogLevel();
-                if (newLogLevel == this.logLevel) {
-                    return;
-                }
-                this.logLevel = newLogLevel;
+            this.logLevel.set(newLogLevel);
+        } else if (event instanceof MaxWorkerCountChangeEvent) {
+            MaxWorkerCountChangeEvent changeEvent = (MaxWorkerCountChangeEvent) event;
+            int newMaxWorkerCount = changeEvent.getNewMaxWorkerCount();
+            if (newMaxWorkerCount == this.maxWorkerCount.get()) {
+                return;
             }
+            this.maxWorkerCount.set(newMaxWorkerCount);
+        }
+        synchronized (lock) {
             formatters.getSource().onOutput(event);
         }
     }
 
-    private class SnapshotImpl implements Snapshot {
+    private static class SnapshotImpl implements Snapshot {
         private final LogLevel logLevel;
         private final OutputEventListener console;
+        private final int maxWorkerCount;
 
-        SnapshotImpl(LogLevel logLevel, OutputEventListener console) {
+        SnapshotImpl(LogLevel logLevel, OutputEventListener console, int maxWorkerCount) {
             this.logLevel = logLevel;
             this.console = console;
+            this.maxWorkerCount = maxWorkerCount;
         }
     }
 }

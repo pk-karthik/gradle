@@ -25,6 +25,7 @@ import org.gradle.api.artifacts.ModuleIdentifier;
 import org.gradle.api.artifacts.dsl.ComponentMetadataHandler;
 import org.gradle.api.artifacts.ivy.IvyModuleDescriptor;
 import org.gradle.api.internal.artifacts.ComponentMetadataProcessor;
+import org.gradle.api.internal.artifacts.ImmutableModuleIdentifierFactory;
 import org.gradle.api.internal.artifacts.ivyservice.DefaultIvyModuleDescriptor;
 import org.gradle.api.internal.artifacts.repositories.resolver.ComponentMetadataDetailsAdapter;
 import org.gradle.api.internal.notations.ModuleIdentifierNotationConverter;
@@ -35,7 +36,12 @@ import org.gradle.internal.component.external.model.ModuleComponentResolveMetada
 import org.gradle.internal.component.external.model.MutableModuleComponentResolveMetadata;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.resolve.ModuleVersionResolveException;
-import org.gradle.internal.rules.*;
+import org.gradle.internal.rules.DefaultRuleActionAdapter;
+import org.gradle.internal.rules.DefaultRuleActionValidator;
+import org.gradle.internal.rules.RuleAction;
+import org.gradle.internal.rules.RuleActionAdapter;
+import org.gradle.internal.rules.RuleActionValidator;
+import org.gradle.internal.rules.SpecRuleAction;
 import org.gradle.internal.typeconversion.NotationParser;
 import org.gradle.internal.typeconversion.NotationParserBuilder;
 import org.gradle.internal.typeconversion.UnsupportedNotationException;
@@ -48,10 +54,6 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
     private static final String ADAPTER_NAME = ComponentMetadataHandler.class.getSimpleName();
     private static final List<Class<?>> VALIDATOR_PARAM_LIST = Collections.<Class<?>>singletonList(IvyModuleDescriptor.class);
 
-    private static final NotationParser<Object, ModuleIdentifier> MODULE_IDENTIFIER_NOTATION_PARSER = NotationParserBuilder
-        .toType(ModuleIdentifier.class)
-        .converter(new ModuleIdentifierNotationConverter())
-        .toComposite();
     private static final String INVALID_SPEC_ERROR = "Could not add a component metadata rule for module '%s'.";
 
     private final Instantiator instantiator;
@@ -59,23 +61,22 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
     private final RuleActionAdapter<ComponentMetadataDetails> ruleActionAdapter;
     private final NotationParser<Object, ModuleIdentifier> moduleIdentifierNotationParser;
 
-    public DefaultComponentMetadataHandler(Instantiator instantiator, RuleActionAdapter<ComponentMetadataDetails> ruleActionAdapter, NotationParser<Object, ModuleIdentifier> moduleIdentifierNotationParser) {
+    public DefaultComponentMetadataHandler(Instantiator instantiator, RuleActionAdapter<ComponentMetadataDetails> ruleActionAdapter, ImmutableModuleIdentifierFactory moduleIdentifierFactory) {
         this.instantiator = instantiator;
         this.ruleActionAdapter = ruleActionAdapter;
-        this.moduleIdentifierNotationParser = moduleIdentifierNotationParser;
+        this.moduleIdentifierNotationParser = NotationParserBuilder
+            .toType(ModuleIdentifier.class)
+            .converter(new ModuleIdentifierNotationConverter(moduleIdentifierFactory))
+            .toComposite();
     }
 
-    public DefaultComponentMetadataHandler(Instantiator instantiator) {
-        this(instantiator, createAdapter(), createModuleIdentifierNotationParser());
+    public DefaultComponentMetadataHandler(Instantiator instantiator, ImmutableModuleIdentifierFactory moduleIdentifierFactory) {
+        this(instantiator, createAdapter(), moduleIdentifierFactory);
     }
 
     private static RuleActionAdapter<ComponentMetadataDetails> createAdapter() {
         RuleActionValidator<ComponentMetadataDetails> ruleActionValidator = new DefaultRuleActionValidator<ComponentMetadataDetails>(VALIDATOR_PARAM_LIST);
         return new DefaultRuleActionAdapter<ComponentMetadataDetails>(ruleActionValidator, ADAPTER_NAME);
-    }
-
-    private static NotationParser<Object, ModuleIdentifier> createModuleIdentifierNotationParser() {
-        return MODULE_IDENTIFIER_NOTATION_PARSER;
     }
 
     private ComponentMetadataHandler addRule(SpecRuleAction<? super ComponentMetadataDetails> ruleAction) {
@@ -124,12 +125,21 @@ public class DefaultComponentMetadataHandler implements ComponentMetadataHandler
         return addRule(createSpecRuleActionForModule(id, ruleActionAdapter.createFromRuleSource(ComponentMetadataDetails.class, ruleSource)));
     }
 
-    public void processMetadata(MutableModuleComponentResolveMetadata metadata) {
-        ComponentMetadataDetails details = instantiator.newInstance(ComponentMetadataDetailsAdapter.class, metadata);
-        processAllRules(metadata, details);
-        if (!metadata.getStatusScheme().contains(metadata.getStatus())) {
-            throw new ModuleVersionResolveException(metadata.getId(), String.format("Unexpected status '%s' specified for %s. Expected one of: %s", metadata.getStatus(), metadata.getComponentId().getDisplayName(), metadata.getStatusScheme()));
+    public ModuleComponentResolveMetadata processMetadata(ModuleComponentResolveMetadata metadata) {
+        ModuleComponentResolveMetadata updatedMetadata;
+        if (rules.isEmpty()) {
+            updatedMetadata = metadata;
+        } else {
+            MutableModuleComponentResolveMetadata mutableMetadata = metadata.asMutable();
+            ComponentMetadataDetails details = instantiator.newInstance(ComponentMetadataDetailsAdapter.class, mutableMetadata);
+            processAllRules(metadata, details);
+            updatedMetadata = mutableMetadata.asImmutable();
         }
+
+        if (!updatedMetadata.getStatusScheme().contains(updatedMetadata.getStatus())) {
+            throw new ModuleVersionResolveException(updatedMetadata.getId(), String.format("Unexpected status '%s' specified for %s. Expected one of: %s", updatedMetadata.getStatus(), updatedMetadata.getComponentId().getDisplayName(), updatedMetadata.getStatusScheme()));
+        }
+        return updatedMetadata;
     }
 
     private void processAllRules(ModuleComponentResolveMetadata metadata, ComponentMetadataDetails details) {

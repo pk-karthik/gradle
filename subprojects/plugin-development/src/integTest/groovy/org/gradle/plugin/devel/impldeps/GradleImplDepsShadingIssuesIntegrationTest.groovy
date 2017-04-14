@@ -94,4 +94,57 @@ class GradleImplDepsShadingIssuesIntegrationTest extends BaseGradleImplDepsInteg
         then:
         succeeds 'test'
     }
+
+    def "can initialize Xerces bridge"() {
+        when:
+        buildFile << testableGroovyProject()
+
+        file('src/main/groovy/MyPlugin.groovy') << '''
+            import org.gradle.api.Plugin
+            import org.gradle.api.Project
+
+            class MyPlugin implements Plugin<Project> {
+
+                void apply(Project project) {
+                    Class xercesBridge = Class.forName('org.gradle.internal.impldep.org.cyberneko.html.xercesbridge.XercesBridge')
+                    assert xercesBridge.instance
+                }
+            }
+        '''
+        file('src/test/groovy/MyPluginTest.groovy') << pluginTest()
+
+        then:
+        succeeds 'test'
+
+    }
+
+    @Issue("GRADLE-3525")
+    def "can use newer Servlet API"() {
+        when:
+        buildFile << testableGroovyProject()
+
+
+        buildFile << """
+            dependencies {
+                testCompile "javax.servlet:javax.servlet-api:3.1.0"
+            }
+        """
+
+        file('src/test/groovy/ServletApiTest.groovy') << '''
+            import org.junit.Test
+
+            public class ServletApiTest {
+
+                @Test
+                public void canLoadNewerServletApi() {
+                    Class clazz = Class.forName("javax.servlet.AsyncContext")
+                    URL source = clazz.classLoader.getResource("javax/servlet/http/HttpServletRequest.class")
+                    assert source.toString().contains('servlet-api-3.1.0')
+                }
+            }
+        '''.stripIndent()
+
+        then:
+        succeeds 'test'
+    }
 }

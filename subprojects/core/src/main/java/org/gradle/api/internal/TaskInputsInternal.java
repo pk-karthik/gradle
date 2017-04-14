@@ -16,8 +16,10 @@
 
 package org.gradle.api.internal;
 
+import com.google.common.collect.ImmutableSortedSet;
+import org.gradle.api.internal.tasks.TaskInputFilePropertySpec;
 import org.gradle.api.tasks.TaskInputs;
 
 public interface TaskInputsInternal extends TaskInputs {
-    void ensureConfigured();
+    ImmutableSortedSet<TaskInputFilePropertySpec> getFileProperties();
 }

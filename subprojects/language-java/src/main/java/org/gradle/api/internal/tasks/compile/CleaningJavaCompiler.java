@@ -40,15 +40,7 @@ public class CleaningJavaCompiler extends CleaningJavaCompilerSupport<JavaCompil
     }
 
     @Override
-    protected StaleClassCleaner createCleaner(JavaCompileSpec spec) {
-        //TODO SF do we want to keep useDepend? The docs advertise that this option makes sense only when useAnt is on
-        //but the latter has been removed in 2.* Either we need to fix the the docs or deprecate useDepend
-        if (spec.getCompileOptions().isUseDepend()) {
-            AntDependsStaleClassCleaner cleaner = new AntDependsStaleClassCleaner(antBuilderFactory, spec.getCompileOptions());
-            cleaner.setDependencyCacheDir(spec.getDependencyCacheDir());
-            return cleaner;
-        } else {
-            return new SimpleStaleClassCleaner(taskOutputs);
-        }
+    protected StaleClassCleaner createCleaner(final JavaCompileSpec spec) {
+        return new SimpleStaleClassCleaner(taskOutputs);
     }
 }

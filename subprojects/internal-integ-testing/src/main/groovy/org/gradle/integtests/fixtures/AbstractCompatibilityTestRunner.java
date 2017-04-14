@@ -18,6 +18,7 @@ package org.gradle.integtests.fixtures;
 import org.gradle.api.Action;
 import org.gradle.api.Transformer;
 import org.gradle.integtests.fixtures.executer.GradleDistribution;
+import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext;
 import org.gradle.integtests.fixtures.executer.UnderDevelopmentGradleDistribution;
 import org.gradle.integtests.fixtures.versions.ReleasedVersionDistributions;
 import org.gradle.internal.jvm.Jvm;
@@ -38,7 +39,8 @@ import static org.gradle.util.CollectionUtils.*;
 public abstract class AbstractCompatibilityTestRunner extends AbstractMultiTestRunner {
 
     private static final String VERSIONS_SYSPROP_NAME = "org.gradle.integtest.versions";
-    protected final GradleDistribution current = new UnderDevelopmentGradleDistribution();
+    protected final IntegrationTestBuildContext buildContext = IntegrationTestBuildContext.INSTANCE;
+    protected final GradleDistribution current = new UnderDevelopmentGradleDistribution(buildContext);
     protected final List<GradleDistribution> previous;
     protected final boolean implicitVersion;
 
@@ -51,23 +53,15 @@ public abstract class AbstractCompatibilityTestRunner extends AbstractMultiTestR
         validateTestName(target);
 
         previous = new ArrayList<GradleDistribution>();
-        final ReleasedVersionDistributions releasedVersions = new ReleasedVersionDistributions();
+        final ReleasedVersionDistributions releasedVersions = new ReleasedVersionDistributions(buildContext);
         if (versionStr.equals("latest")) {
-            previous.add(releasedVersions.getMostRecentFinalRelease());
             implicitVersion = true;
+            addVersionIfCompatibleWithJvmAndOs(releasedVersions.getMostRecentFinalRelease());
         } else if (versionStr.equals("all")) {
             implicitVersion = true;
             List<GradleDistribution> previousVersionsToTest = choosePreviousVersionsToTest(releasedVersions);
             for (GradleDistribution previousVersion : previousVersionsToTest) {
-                if (!previousVersion.worksWith(Jvm.current())) {
-                    add(new IgnoredVersion(previousVersion, "does not work with current JVM"));
-                    continue;
-                }
-                if (!previousVersion.worksWith(OperatingSystem.current())) {
-                    add(new IgnoredVersion(previousVersion, "does not work with current OS"));
-                    continue;
-                }
-                this.previous.add(previousVersion);
+                addVersionIfCompatibleWithJvmAndOs(previousVersion);
             }
         } else if (versionStr.matches("^\\d.*$")) {
             implicitVersion = false;
@@ -89,6 +83,16 @@ public abstract class AbstractCompatibilityTestRunner extends AbstractMultiTestR
             });
         } else {
             throw new RuntimeException("Invalid value for " + VERSIONS_SYSPROP_NAME + " system property: " + versionStr + "(valid values: 'all', 'latest' or comma separated list of versions)");
+        }
+    }
+
+    private void addVersionIfCompatibleWithJvmAndOs(GradleDistribution previousVersion) {
+        if (!previousVersion.worksWith(Jvm.current())) {
+            add(new IgnoredVersion(previousVersion, "does not work with current JVM"));
+        } else if (!previousVersion.worksWith(OperatingSystem.current())) {
+            add(new IgnoredVersion(previousVersion, "does not work with current OS"));
+        } else {
+            this.previous.add(previousVersion);
         }
     }
 

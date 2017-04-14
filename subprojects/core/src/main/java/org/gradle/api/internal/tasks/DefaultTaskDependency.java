@@ -16,21 +16,30 @@
 
 package org.gradle.api.internal.tasks;
 
+import com.google.common.collect.Sets;
 import groovy.lang.Closure;
 import org.gradle.api.Buildable;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.Task;
 import org.gradle.api.tasks.TaskDependency;
+import org.gradle.api.tasks.TaskReference;
 import org.gradle.internal.typeconversion.UnsupportedNotationException;
-import org.gradle.util.GUtil;
 
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.ListIterator;
+import java.util.Map;
+import java.util.RandomAccess;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
+import static com.google.common.collect.Iterables.toArray;
 import static org.gradle.util.GUtil.uncheckedCall;
 
 public class DefaultTaskDependency extends AbstractTaskDependency {
-    private final Set<Object> values = new HashSet<Object>();
+    private Set<Object> values;
     private final TaskResolver resolver;
 
     public DefaultTaskDependency() {
@@ -43,7 +52,10 @@ public class DefaultTaskDependency extends AbstractTaskDependency {
 
     @Override
     public void visitDependencies(TaskDependencyResolveContext context) {
-        LinkedList<Object> queue = new LinkedList<Object>(values);
+        if (getValues().isEmpty()) {
+            return;
+        }
+        Deque<Object> queue = new ArrayDeque<Object>(getValues());
         while (!queue.isEmpty()) {
             Object dependency = queue.removeFirst();
             if (dependency instanceof Buildable) {
@@ -56,33 +68,49 @@ public class DefaultTaskDependency extends AbstractTaskDependency {
                 Closure closure = (Closure) dependency;
                 Object closureResult = closure.call(context.getTask());
                 if (closureResult != null) {
-                    queue.add(0, closureResult);
+                    queue.addFirst(closureResult);
                 }
             } else if (dependency instanceof RealizableTaskCollection) {
                 RealizableTaskCollection realizableTaskCollection = (RealizableTaskCollection) dependency;
                 realizableTaskCollection.realizeRuleTaskTypes();
-                queue.addAll(0, GUtil.addToCollection(new ArrayList<Object>(), realizableTaskCollection));
+                addAllFirst(queue, realizableTaskCollection.toArray());
+            } else if (dependency instanceof List) {
+                List<?> list = (List) dependency;
+                if (list instanceof RandomAccess) {
+                    for (int i = list.size() - 1; i >= 0; i--) {
+                        queue.addFirst(list.get(i));
+                    }
+                } else {
+                    ListIterator<?> iterator = list.listIterator(list.size());
+                    while (iterator.hasPrevious()) {
+                        Object item = iterator.previous();
+                        queue.addFirst(item);
+                    }
+                }
             } else if (dependency instanceof Iterable) {
                 Iterable<?> iterable = (Iterable) dependency;
-                queue.addAll(0, GUtil.addToCollection(new ArrayList<Object>(), iterable));
+                addAllFirst(queue, toArray(iterable, Object.class));
             } else if (dependency instanceof Map) {
                 Map<?, ?> map = (Map) dependency;
-                queue.addAll(0, map.values());
+                addAllFirst(queue, map.values().toArray());
             } else if (dependency instanceof Object[]) {
                 Object[] array = (Object[]) dependency;
-                queue.addAll(0, Arrays.asList(array));
+                addAllFirst(queue, array);
             } else if (dependency instanceof Callable) {
                 Callable callable = (Callable) dependency;
                 Object callableResult = uncheckedCall(callable);
                 if (callableResult != null) {
-                    queue.add(0, callableResult);
+                    queue.addFirst(callableResult);
                 }
+            } else if (resolver != null && dependency instanceof TaskReference) {
+                context.add(resolver.resolveTask((TaskReference) dependency));
             } else if (resolver != null && dependency instanceof CharSequence) {
                 context.add(resolver.resolveTask(dependency.toString()));
             } else {
                 List<String> formats = new ArrayList<String>();
                 if (resolver != null) {
                     formats.add("A String or CharSequence task name or path");
+                    formats.add("A TaskReference instance");
                 }
                 formats.add("A Task instance");
                 formats.add("A Buildable instance");
@@ -95,12 +123,21 @@ public class DefaultTaskDependency extends AbstractTaskDependency {
         }
     }
 
+    private static void addAllFirst(Deque<Object> queue, Object[] items) {
+        for (int i = items.length - 1; i >= 0; i--) {
+            queue.addFirst(items[i]);
+        }
+    }
+
     public Set<Object> getValues() {
+        if (values == null) {
+            values = Sets.newHashSet();
+        }
         return values;
     }
 
     public void setValues(Iterable<?> values) {
-        this.values.clear();
+        getValues().clear();
         for (Object value : values) {
             addValue(value);
         }
@@ -117,6 +154,6 @@ public class DefaultTaskDependency extends AbstractTaskDependency {
         if (dependency == null) {
             throw new InvalidUserDataException("A dependency must not be empty");
         }
-        this.values.add(dependency);
+        getValues().add(dependency);
     }
 }

@@ -16,11 +16,16 @@
 package org.gradle.api.tasks.bundling;
 
 import groovy.lang.Closure;
+import org.gradle.api.Action;
+import org.gradle.api.Incubating;
+import org.gradle.api.file.CopySpec;
+import org.gradle.api.internal.file.copy.CopyActionExecuter;
 import org.gradle.api.tasks.AbstractCopyTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.Internal;
-import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputFile;
+import org.gradle.internal.nativeplatform.filesystem.FileSystem;
+import org.gradle.internal.reflect.Instantiator;
 import org.gradle.util.GUtil;
 
 import java.io.File;
@@ -36,6 +41,8 @@ public abstract class AbstractArchiveTask extends AbstractCopyTask {
     private String version;
     private String extension;
     private String classifier = "";
+    private boolean preserveFileTimestamps = true;
+    private boolean reproducibleFileOrder;
 
     /**
      * Returns the archive name. If the name has not been explicitly set, the pattern for the name is:
@@ -43,7 +50,7 @@ public abstract class AbstractArchiveTask extends AbstractCopyTask {
      *
      * @return the archive name.
      */
-    @Input
+    @Internal("Represented as part of archivePath")
     public String getArchiveName() {
         if (customName != null) {
             return customName;
@@ -90,7 +97,7 @@ public abstract class AbstractArchiveTask extends AbstractCopyTask {
      *
      * @return the directory
      */
-    @Internal
+    @Internal("Represented as part of archivePath")
     public File getDestinationDir() {
         return destinationDir;
     }
@@ -104,7 +111,7 @@ public abstract class AbstractArchiveTask extends AbstractCopyTask {
      *
      * @return the base name.
      */
-    @Optional @Input
+    @Internal("Represented as part of archiveName")
     public String getBaseName() {
         return baseName;
     }
@@ -118,7 +125,7 @@ public abstract class AbstractArchiveTask extends AbstractCopyTask {
      *
      * @return the appendix. May be null
      */
-    @Optional @Input
+    @Internal("Represented as part of archiveName")
     public String getAppendix() {
         return appendix;
     }
@@ -132,7 +139,7 @@ public abstract class AbstractArchiveTask extends AbstractCopyTask {
      *
      * @return the version. May be null.
      */
-    @Optional @Input
+    @Internal("Represented as part of archiveName")
     public String getVersion() {
         return version;
     }
@@ -144,7 +151,7 @@ public abstract class AbstractArchiveTask extends AbstractCopyTask {
     /**
      * Returns the extension part of the archive name.
      */
-    @Input
+    @Internal("Represented as part of archiveName")
     public String getExtension() {
         return extension;
     }
@@ -158,7 +165,7 @@ public abstract class AbstractArchiveTask extends AbstractCopyTask {
      *
      * @return The classifier. May be null.
      */
-    @Optional @Input
+    @Internal("Represented as part of archiveName")
     public String getClassifier() {
         return classifier;
     }
@@ -194,4 +201,87 @@ public abstract class AbstractArchiveTask extends AbstractCopyTask {
         return this;
     }
 
+
+    /**
+     * Creates and configures a child {@code CopySpec} with a destination directory *inside* the archive for the files.
+     * The destination is evaluated as per {@link org.gradle.api.Project#file(Object)}.
+     * Don't mix it up with {@link #getDestinationDir()} which specifies the output directory for the archive.
+     *
+     * @param destPath destination directory *inside* the archive for the files
+     * @param copySpec The closure to use to configure the child {@code CopySpec}.
+     * @return this
+     */
+    public CopySpec into(Object destPath, Action<? super CopySpec> copySpec) {
+        super.into(destPath, copySpec);
+        return this;
+    }
+
+    /**
+     * Specifies whether file timestamps should be preserved in the archive.
+     * <p>
+     * If <tt>false</tt> this ensures that archive entries have the same time for builds between different machines, Java versions and operating systems.
+     * </p>
+     *
+     * @since 3.4
+     * @return <tt>true</tt> if file timestamps should be preserved for archive entries
+     */
+    @Input
+    @Incubating
+    public boolean isPreserveFileTimestamps() {
+        return preserveFileTimestamps;
+    }
+
+    /**
+     * Specifies whether file timestamps should be preserved in the archive.
+     * <p>
+     * If <tt>false</tt> this ensures that archive entries have the same time for builds between different machines, Java versions and operating systems.
+     * </p>
+     *
+     * @since 3.4
+     * @param preserveFileTimestamps <tt>true</tt> if file timestamps should be preserved for archive entries
+     */
+    @Incubating
+    public void setPreserveFileTimestamps(boolean preserveFileTimestamps) {
+        this.preserveFileTimestamps = preserveFileTimestamps;
+    }
+
+    /**
+     * Specifies whether to enforce a reproducible file order when reading files from directories.
+     * <p>
+     * Gradle will then walk the directories on disk which are part of this archive in a reproducible order
+     * independent of file systems and operating systems.
+     * This helps Gradle reliably produce byte-for-byte reproducible archives.
+     * </p>
+     *
+     * @since 3.4
+     * @return <tt>true</tt> if the files should read from disk in a reproducible order.
+     */
+    @Input
+    @Incubating
+    public boolean isReproducibleFileOrder() {
+        return reproducibleFileOrder;
+    }
+    /**
+     * Specifies whether to enforce a reproducible file order when reading files from directories.
+     * <p>
+     * Gradle will then walk the directories on disk which are part of this archive in a reproducible order
+     * independent of file systems and operating systems.
+     * This helps Gradle reliably produce byte-for-byte reproducible archives.
+     * </p>
+     *
+     * @since 3.4
+     * @param reproducibleFileOrder <tt>true</tt> if the files should read from disk in a reproducible order.
+     */
+    @Incubating
+    public void setReproducibleFileOrder(boolean reproducibleFileOrder) {
+        this.reproducibleFileOrder = reproducibleFileOrder;
+    }
+
+    @Override
+    protected CopyActionExecuter createCopyActionExecuter() {
+        Instantiator instantiator = getInstantiator();
+        FileSystem fileSystem = getFileSystem();
+
+        return new CopyActionExecuter(instantiator, fileSystem, isReproducibleFileOrder());
+    }
 }

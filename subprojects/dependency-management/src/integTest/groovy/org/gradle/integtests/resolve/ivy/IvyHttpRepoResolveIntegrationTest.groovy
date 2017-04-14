@@ -15,6 +15,7 @@
  */
 package org.gradle.integtests.resolve.ivy
 
+import org.gradle.api.credentials.PasswordCredentials
 import org.gradle.test.fixtures.server.RepositoryServer
 import org.gradle.test.fixtures.server.http.RepositoryHttpServer
 import org.junit.Rule
@@ -59,7 +60,7 @@ class IvyHttpRepoResolveIntegrationTest extends AbstractIvyRemoteRepoResolveInte
         fails 'retrieve'
         then:
         failure.assertHasDescription("Could not resolve all dependencies for configuration ':compile'.")
-            .assertHasCause('Credentials must be an instance of: org.gradle.api.artifacts.repositories.PasswordCredentials')
+            .assertHasCause("Credentials must be an instance of: ${PasswordCredentials.canonicalName}")
     }
 
 
@@ -85,8 +86,10 @@ class IvyHttpRepoResolveIntegrationTest extends AbstractIvyRemoteRepoResolveInte
             }
             configurations { compile }
             dependencies { compile 'group:projectA:1.2' }
-            task listJars << {
-                assert configurations.compile.collect { it.name } == ['projectA-1.2.jar']
+            task listJars {
+                doLast {
+                    assert configurations.compile.collect { it.name } == ['projectA-1.2.jar']
+                }
             }
         """
         when:

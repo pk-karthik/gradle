@@ -15,28 +15,43 @@
  */
 package org.gradle.api.internal.tasks;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import groovy.lang.Closure;
 import org.apache.commons.lang.StringUtils;
-import org.gradle.api.*;
+import org.gradle.api.Action;
+import org.gradle.api.DefaultTask;
+import org.gradle.api.InvalidUserDataException;
+import org.gradle.api.NamedDomainObjectContainer;
+import org.gradle.api.Project;
+import org.gradle.api.Task;
+import org.gradle.api.UnknownTaskException;
 import org.gradle.api.internal.NamedDomainObjectContainerConfigureDelegate;
 import org.gradle.api.internal.TaskInternal;
 import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.internal.project.taskfactory.ITaskFactory;
 import org.gradle.api.tasks.TaskCollection;
+import org.gradle.api.tasks.TaskReference;
 import org.gradle.initialization.ProjectAccessListener;
 import org.gradle.internal.Transformers;
-import org.gradle.internal.graph.CachingDirectedGraphWalker;
-import org.gradle.internal.graph.DirectedGraph;
 import org.gradle.internal.metaobject.DynamicObject;
 import org.gradle.internal.reflect.Instantiator;
-import org.gradle.model.internal.core.*;
+import org.gradle.model.internal.core.ModelActionRole;
+import org.gradle.model.internal.core.ModelNode;
+import org.gradle.model.internal.core.ModelPath;
+import org.gradle.model.internal.core.ModelRegistrations;
+import org.gradle.model.internal.core.MutableModelNode;
+import org.gradle.model.internal.core.NamedEntityInstantiator;
+import org.gradle.model.internal.core.UnmanagedModelProjection;
 import org.gradle.model.internal.core.rule.describe.SimpleModelRuleDescriptor;
 import org.gradle.model.internal.type.ModelType;
 import org.gradle.util.ConfigureUtil;
-import org.gradle.util.GUtil;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.SortedSet;
 
 public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements TaskContainerInternal {
     private final MutableModelNode modelNode;
@@ -60,6 +75,10 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
         boolean replace = replaceStr != null && "true".equals(replaceStr.toString());
 
         Task task = taskFactory.createTask(mutableOptions);
+        return addTask(task, replace);
+    }
+
+    private <T extends Task> T addTask(T task, boolean replaceExisting) {
         String name = task.getName();
 
         if (placeholders.remove(name)) {
@@ -68,7 +87,7 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
 
         Task existing = findByNameWithoutRules(name);
         if (existing != null) {
-            if (replace) {
+            if (replaceExisting) {
                 remove(existing);
             } else {
                 throw new InvalidUserDataException(String.format(
@@ -94,11 +113,12 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
     }
 
     public <T extends Task> T create(String name, Class<T> type) {
-        return type.cast(create(GUtil.map(Task.TASK_NAME, name, Task.TASK_TYPE, type)));
+        T task = instantiator.create(name, type);
+        return addTask(task, false);
     }
 
     public Task create(String name) {
-        return create(GUtil.map(Task.TASK_NAME, name));
+        return create(name, DefaultTask.class);
     }
 
     public Task create(String name, Action<? super Task> configureAction) throws InvalidUserDataException {
@@ -116,7 +136,7 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
     }
 
     public Task replace(String name) {
-        return create(GUtil.map(Task.TASK_NAME, name, Task.TASK_OVERWRITE, true));
+        return replace(name, DefaultTask.class);
     }
 
     public Task create(String name, Closure configureClosure) {
@@ -130,11 +150,12 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
     }
 
     public <T extends Task> T replace(String name, Class<T> type) {
-        return type.cast(create(GUtil.map(Task.TASK_NAME, name, Task.TASK_TYPE, type, Task.TASK_OVERWRITE, true)));
+        T task = instantiator.create(name, type);
+        return addTask(task, true);
     }
 
     public Task findByPath(String path) {
-        if (!GUtil.isTrue(path)) {
+        if (Strings.isNullOrEmpty(path)) {
             throw new InvalidUserDataException("A path must be specified!");
         }
         if (!path.contains(Project.PATH_SEPARATOR)) {
@@ -142,7 +163,7 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
         }
 
         String projectPath = StringUtils.substringBeforeLast(path, Project.PATH_SEPARATOR);
-        ProjectInternal project = this.project.findProject(!GUtil.isTrue(projectPath) ? Project.PATH_SEPARATOR : projectPath);
+        ProjectInternal project = this.project.findProject(Strings.isNullOrEmpty(projectPath) ? Project.PATH_SEPARATOR : projectPath);
         if (project == null) {
             return null;
         }
@@ -152,10 +173,22 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
     }
 
     public Task resolveTask(String path) {
-        if (!GUtil.isTrue(path)) {
+        if (Strings.isNullOrEmpty(path)) {
             throw new InvalidUserDataException("A path must be specified!");
         }
         return getByPath(path);
+    }
+
+    @Override
+    public Task resolveTask(TaskReference reference) {
+        for (TaskReferenceResolver taskResolver : project.getServices().getAll(TaskReferenceResolver.class)) {
+            Task constructed = taskResolver.constructTask(reference, this);
+            if (constructed != null) {
+                return constructed;
+            }
+        }
+
+        throw new UnknownTaskException(String.format("Task reference '%s' could not be resolved in %s.", reference.getName(), project));
     }
 
     public Task getByPath(String path) throws UnknownTaskException {
@@ -185,12 +218,6 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
 
     public void realize() {
         project.getModelRegistry().realizeNode(modelNode.getPath());
-
-        new CachingDirectedGraphWalker<Task, Void>(new DirectedGraph<Task, Void>() {
-            public void getNodeValues(Task node, Collection<? super Void> values, Collection<? super Task> connectedNodes) {
-                connectedNodes.addAll(node.getTaskDependencies().getDependencies(node));
-            }
-        }).add(this).findValues();
     }
 
     @Override
@@ -207,10 +234,15 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
         }
     }
 
-    private void maybeCreateTasks(String name) {
+    /**
+     * @return true if this method _may_ have done some work.
+     */
+    private boolean maybeCreateTasks(String name) {
         if (modelNode.hasLink(name)) {
             realizeTask(MODEL_PATH.child(name), ModelNode.State.Initialized);
+            return true;
         }
+        return false;
     }
 
     public Task findByName(String name) {
@@ -218,9 +250,11 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
         if (task != null) {
             return task;
         }
-        maybeCreateTasks(name);
+        if (!maybeCreateTasks(name)) {
+            return null;
+        }
         placeholders.remove(name);
-        return super.findByName(name);
+        return super.findByNameWithoutRules(name);
     }
 
     private Task realizeTask(ModelPath taskPath, ModelNode.State minState) {

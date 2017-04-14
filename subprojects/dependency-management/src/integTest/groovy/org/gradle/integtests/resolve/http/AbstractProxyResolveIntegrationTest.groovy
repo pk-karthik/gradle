@@ -17,7 +17,7 @@ package org.gradle.integtests.resolve.http
 
 import org.gradle.api.JavaVersion
 import org.gradle.integtests.fixtures.AbstractHttpDependencyResolutionTest
-import org.gradle.test.fixtures.server.http.HttpServer
+import org.gradle.test.fixtures.server.http.AuthScheme
 import org.gradle.test.fixtures.server.http.MavenHttpModule
 import org.gradle.test.fixtures.server.http.MavenHttpRepository
 import org.gradle.test.fixtures.server.http.TestProxyServer
@@ -50,8 +50,10 @@ abstract class AbstractProxyResolveIntegrationTest extends AbstractHttpDependenc
         buildFile << """
 configurations { compile }
 dependencies { compile 'org.gradle.test:some-lib:1.2.17' }
-task listJars << {
-    assert configurations.compile.collect { it.name } == ['some-lib-1.2.17.jar']
+task listJars {
+    doLast {
+        assert configurations.compile.collect { it.name } == ['some-lib-1.2.17.jar']
+    }
 }
 """
     }
@@ -244,10 +246,10 @@ repositories {
         proxyServer.requestCount == (tunnel ? 1 : requestCount)
 
         where:
-        authScheme                   | requestCount
-        HttpServer.AuthScheme.BASIC  | 3
-        HttpServer.AuthScheme.DIGEST | 3
-        HttpServer.AuthScheme.NTLM   | 4
+        authScheme        | requestCount
+        AuthScheme.BASIC  | 3
+        AuthScheme.DIGEST | 3
+        AuthScheme.NTLM   | 4
     }
 
     def configureProxyHostFor(String scheme) {

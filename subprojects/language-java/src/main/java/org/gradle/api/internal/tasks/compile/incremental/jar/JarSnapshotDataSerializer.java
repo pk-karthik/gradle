@@ -16,38 +16,61 @@
 
 package org.gradle.api.internal.tasks.compile.incremental.jar;
 
+import com.google.common.base.Objects;
+import com.google.common.hash.HashCode;
 import org.gradle.api.internal.tasks.compile.incremental.deps.ClassSetAnalysisData;
-import org.gradle.internal.hash.HashValue;
-import org.gradle.internal.serialize.*;
+import org.gradle.internal.serialize.AbstractSerializer;
+import org.gradle.internal.serialize.Decoder;
+import org.gradle.internal.serialize.Encoder;
+import org.gradle.internal.serialize.HashCodeSerializer;
+import org.gradle.internal.serialize.MapSerializer;
+import org.gradle.internal.serialize.Serializer;
 
 import java.util.Map;
 
 import static org.gradle.internal.serialize.BaseSerializerFactory.STRING_SERIALIZER;
 
-public class JarSnapshotDataSerializer implements Serializer<JarSnapshotData> {
+public class JarSnapshotDataSerializer extends AbstractSerializer<JarSnapshotData> {
 
-    private final MapSerializer<String, HashValue> mapSerializer;
+    private final MapSerializer<String, HashCode> mapSerializer;
     private final Serializer<ClassSetAnalysisData> analysisSerializer;
-    private final HashValueSerializer hashValueSerializer;
+    private final HashCodeSerializer hashCodeSerializer;
 
     public JarSnapshotDataSerializer() {
-        hashValueSerializer = new HashValueSerializer();
-        mapSerializer = new MapSerializer<String, HashValue>(STRING_SERIALIZER, hashValueSerializer);
+        hashCodeSerializer = new HashCodeSerializer();
+        mapSerializer = new MapSerializer<String, HashCode>(STRING_SERIALIZER, hashCodeSerializer);
         analysisSerializer = new ClassSetAnalysisData.Serializer();
     }
 
     @Override
     public JarSnapshotData read(Decoder decoder) throws Exception {
-        HashValue hash = hashValueSerializer.read(decoder);
-        Map<String, HashValue> hashes = mapSerializer.read(decoder);
+        HashCode hash = hashCodeSerializer.read(decoder);
+        Map<String, HashCode> hashes = mapSerializer.read(decoder);
         ClassSetAnalysisData data = analysisSerializer.read(decoder);
         return new JarSnapshotData(hash, hashes, data);
     }
 
     @Override
     public void write(Encoder encoder, JarSnapshotData value) throws Exception {
-        hashValueSerializer.write(encoder, value.hash);
+        hashCodeSerializer.write(encoder, value.hash);
         mapSerializer.write(encoder, value.hashes);
         analysisSerializer.write(encoder, value.data);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!super.equals(obj)) {
+            return false;
+        }
+
+        JarSnapshotDataSerializer rhs = (JarSnapshotDataSerializer) obj;
+        return Objects.equal(mapSerializer, rhs.mapSerializer)
+            && Objects.equal(analysisSerializer, rhs.analysisSerializer)
+            && Objects.equal(hashCodeSerializer, rhs.hashCodeSerializer);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(super.hashCode(), mapSerializer, analysisSerializer, hashCodeSerializer);
     }
 }

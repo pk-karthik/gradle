@@ -21,23 +21,43 @@ import org.gradle.api.Action;
 import org.gradle.api.internal.ClassPathRegistry;
 import org.gradle.api.internal.DefaultClassPathProvider;
 import org.gradle.api.internal.DefaultClassPathRegistry;
+import org.gradle.api.internal.attributes.DefaultImmutableAttributesFactory;
+import org.gradle.api.internal.attributes.ImmutableAttributesFactory;
+import org.gradle.api.internal.cache.DefaultGeneratedGradleJarCache;
+import org.gradle.api.internal.cache.GeneratedGradleJarCache;
 import org.gradle.api.internal.classpath.ModuleRegistry;
 import org.gradle.api.internal.file.TemporaryFileProvider;
 import org.gradle.cache.CacheRepository;
 import org.gradle.cache.internal.CacheRepositoryServices;
 import org.gradle.deployment.internal.DefaultDeploymentRegistry;
 import org.gradle.deployment.internal.DeploymentRegistry;
+import org.gradle.internal.resources.DefaultResourceLockCoordinationService;
+import org.gradle.internal.work.DefaultWorkerLeaseService;
+import org.gradle.internal.resources.ProjectLeaseRegistry;
 import org.gradle.internal.classpath.ClassPath;
+import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.internal.id.LongIdGenerator;
+import org.gradle.internal.jvm.inspection.JvmVersionDetector;
+import org.gradle.internal.logging.events.OutputEventListener;
+import org.gradle.internal.progress.BuildOperationExecutor;
+import org.gradle.internal.operations.BuildOperationProcessor;
+import org.gradle.internal.operations.DefaultBuildOperationProcessor;
+import org.gradle.internal.operations.DefaultBuildOperationQueueFactory;
 import org.gradle.internal.remote.MessagingServer;
 import org.gradle.internal.service.DefaultServiceRegistry;
 import org.gradle.internal.service.ServiceRegistration;
 import org.gradle.internal.service.ServiceRegistry;
+import org.gradle.internal.work.AsyncWorkTracker;
+import org.gradle.internal.work.DefaultAsyncWorkTracker;
+import org.gradle.internal.resources.ResourceLockCoordinationService;
+import org.gradle.internal.work.WorkerLeaseService;
 import org.gradle.plugin.use.internal.InjectedPluginClasspath;
 import org.gradle.process.internal.JavaExecHandleFactory;
+import org.gradle.process.internal.health.memory.MemoryManager;
 import org.gradle.process.internal.worker.DefaultWorkerProcessFactory;
 import org.gradle.process.internal.worker.WorkerProcessFactory;
 import org.gradle.process.internal.worker.child.WorkerProcessClassPathProvider;
+import org.gradle.util.GradleVersion;
 
 /**
  * Contains the services for a single build session, which could be a single build or multiple builds when in continuous mode.
@@ -63,8 +83,13 @@ public class BuildSessionScopeServices extends DefaultServiceRegistry {
         return new DefaultDeploymentRegistry();
     }
 
+    BuildOperationProcessor createBuildOperationProcessor(WorkerLeaseService workerLeaseService, BuildOperationExecutor buildOperationExecutor, StartParameter startParameter, ExecutorFactory executorFactory) {
+        return new DefaultBuildOperationProcessor(buildOperationExecutor, new DefaultBuildOperationQueueFactory(workerLeaseService), executorFactory, startParameter.getMaxWorkerCount());
+    }
+
     WorkerProcessFactory createWorkerProcessFactory(StartParameter startParameter, MessagingServer messagingServer, ClassPathRegistry classPathRegistry,
-                                                    TemporaryFileProvider temporaryFileProvider, JavaExecHandleFactory execHandleFactory) {
+                                                    TemporaryFileProvider temporaryFileProvider, JavaExecHandleFactory execHandleFactory, JvmVersionDetector jvmVersionDetector,
+                                                    MemoryManager memoryManager) {
         return new DefaultWorkerProcessFactory(
             startParameter.getLogLevel(),
             messagingServer,
@@ -72,7 +97,11 @@ public class BuildSessionScopeServices extends DefaultServiceRegistry {
             new LongIdGenerator(),
             startParameter.getGradleUserHomeDir(),
             temporaryFileProvider,
-            execHandleFactory);
+            execHandleFactory,
+            jvmVersionDetector,
+            get(OutputEventListener.class),
+            memoryManager
+        );
     }
 
     ClassPathRegistry createClassPathRegistry() {
@@ -84,5 +113,26 @@ public class BuildSessionScopeServices extends DefaultServiceRegistry {
 
     WorkerProcessClassPathProvider createWorkerProcessClassPathProvider(CacheRepository cacheRepository) {
         return new WorkerProcessClassPathProvider(cacheRepository);
+    }
+
+    GeneratedGradleJarCache createGeneratedGradleJarCache(CacheRepository cacheRepository) {
+        String gradleVersion = GradleVersion.current().getVersion();
+        return new DefaultGeneratedGradleJarCache(cacheRepository, gradleVersion);
+    }
+
+    ImmutableAttributesFactory createImmutableAttributesFactory() {
+        return new DefaultImmutableAttributesFactory();
+    }
+
+    ResourceLockCoordinationService createWorkerLeaseCoordinationService() {
+        return new DefaultResourceLockCoordinationService();
+    }
+
+    AsyncWorkTracker createAsyncWorkTracker(ProjectLeaseRegistry projectLeaseRegistry) {
+        return new DefaultAsyncWorkTracker(projectLeaseRegistry);
+    }
+
+    WorkerLeaseService createWorkerLeaseService(ResourceLockCoordinationService coordinationService, StartParameter startParameter) {
+        return new DefaultWorkerLeaseService(coordinationService, startParameter.isParallelProjectExecutionEnabled(), startParameter.getMaxWorkerCount());
     }
 }

@@ -18,61 +18,56 @@ package org.gradle.initialization;
 
 import org.gradle.api.internal.ClassPathRegistry;
 import org.gradle.internal.classloader.CachingClassLoader;
-import org.gradle.internal.classloader.ClassLoaderFactory;
 import org.gradle.internal.classloader.FilteringClassLoader;
-import org.gradle.internal.classpath.ClassPath;
 
 public class DefaultClassLoaderRegistry implements ClassLoaderRegistry {
     private final ClassLoader apiOnlyClassLoader;
     private final ClassLoader apiAndPluginsClassLoader;
-    private final ClassLoader extensionsClassLoader;
-    private final ClassLoaderFactory classLoaderFactory;
+    private final ClassLoader pluginsClassLoader;
 
-    public DefaultClassLoaderRegistry(ClassPathRegistry classPathRegistry, ClassLoaderFactory classLoaderFactory) {
-        this.classLoaderFactory = classLoaderFactory;
+    public DefaultClassLoaderRegistry(ClassPathRegistry classPathRegistry, LegacyTypesSupport legacyTypesSupport) {
         ClassLoader runtimeClassLoader = getClass().getClassLoader();
-
-        apiOnlyClassLoader = restrictToGradleApi(runtimeClassLoader);
-
-        ClassPath pluginsClassPath = classPathRegistry.getClassPath("GRADLE_EXTENSIONS");
-        extensionsClassLoader = classLoaderFactory.createClassLoader(runtimeClassLoader, pluginsClassPath, new ClassLoaderFactory.ClassLoaderCreator() {
-            @Override
-            public ClassLoader create(ClassLoader parent, ClassPath classPath) {
-                return new MixInLegacyTypesClassLoader(parent, classPath);
-            }
-        });
-
-        this.apiAndPluginsClassLoader = restrictToGradleApi(extensionsClassLoader);
+        this.apiOnlyClassLoader = restrictToGradleApi(runtimeClassLoader);
+        this.pluginsClassLoader = new MixInLegacyTypesClassLoader(runtimeClassLoader, classPathRegistry.getClassPath("GRADLE_EXTENSIONS"), legacyTypesSupport);
+        this.apiAndPluginsClassLoader = restrictToGradleApi(pluginsClassLoader);
     }
 
     private ClassLoader restrictToGradleApi(ClassLoader classLoader) {
-        FilteringClassLoader.Spec rootSpec = new FilteringClassLoader.Spec();
-        rootSpec.allowPackage("org.gradle");
-        rootSpec.allowResources("META-INF/gradle-plugins");
-        rootSpec.allowPackage("org.apache.tools.ant");
-        rootSpec.allowPackage("groovy");
-        rootSpec.allowPackage("org.codehaus.groovy");
-        rootSpec.allowPackage("groovyjarjarantlr");
-        rootSpec.allowPackage("org.slf4j");
-        rootSpec.allowPackage("org.apache.commons.logging");
-        rootSpec.allowPackage("org.apache.log4j");
-        rootSpec.allowPackage("javax.inject");
-        ClassLoader rootClassLoader = classLoaderFactory.createFilteringClassLoader(classLoader, rootSpec);
-        return new CachingClassLoader(rootClassLoader);
+        return restrictTo(apiSpecFor(classLoader), classLoader);
     }
 
+    private static ClassLoader restrictTo(FilteringClassLoader.Spec spec, ClassLoader parent) {
+        return new CachingClassLoader(new FilteringClassLoader(parent, spec));
+    }
+
+    private static FilteringClassLoader.Spec apiSpecFor(ClassLoader classLoader) {
+        FilteringClassLoader.Spec apiSpec = new FilteringClassLoader.Spec();
+        GradleApiSpecProvider.Spec apiAggregate = new GradleApiSpecAggregator(classLoader).aggregate();
+        for (String resourcePrefix : apiAggregate.getExportedResourcePrefixes()) {
+            apiSpec.allowResources(resourcePrefix);
+        }
+        for (String packageName : apiAggregate.getExportedPackages()) {
+            apiSpec.allowPackage(packageName);
+        }
+        return apiSpec;
+    }
+
+    @Override
     public ClassLoader getRuntimeClassLoader() {
         return getClass().getClassLoader();
     }
 
+    @Override
     public ClassLoader getGradleApiClassLoader() {
         return apiAndPluginsClassLoader;
     }
 
+    @Override
     public ClassLoader getPluginsClassLoader() {
-        return extensionsClassLoader;
+        return pluginsClassLoader;
     }
 
+    @Override
     public ClassLoader getGradleCoreApiClassLoader() {
         return apiOnlyClassLoader;
     }

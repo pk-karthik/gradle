@@ -16,61 +16,43 @@
 
 package org.gradle.api.internal.runtimeshaded;
 
-import org.gradle.cache.CacheRepository;
-import org.gradle.cache.PersistentCache;
-import org.gradle.cache.internal.FileLockManager;
+import org.gradle.api.Action;
+import org.gradle.api.internal.cache.GeneratedGradleJarCache;
+import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory;
 import org.gradle.internal.logging.progress.ProgressLoggerFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Closeable;
 import java.io.File;
 import java.util.Collection;
 
-import static org.gradle.cache.internal.filelock.LockOptionsBuilder.mode;
-
-public class RuntimeShadedJarFactory implements Closeable {
+public class RuntimeShadedJarFactory {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RuntimeShadedJarFactory.class);
 
-    public static final String CACHE_KEY = "generated-gradle-jars";
-    public static final String CACHE_DISPLAY_NAME = "Generated Gradle JARs cache";
+    private final GeneratedGradleJarCache cache;
+    private final ProgressLoggerFactory progressLoggerFactory;
+    private final DirectoryFileTreeFactory directoryFileTreeFactory;
 
-    private final String gradleVersion;
-    private final PersistentCache cache;
-    private final RuntimeShadedJarCreator creator;
-
-    public RuntimeShadedJarFactory(CacheRepository cacheRepository, ProgressLoggerFactory progressLoggerFactory, String gradleVersion) {
-        this.creator = new RuntimeShadedJarCreator(progressLoggerFactory);
-        this.gradleVersion = gradleVersion;
-        this.cache = cacheRepository
-            .cache(CACHE_KEY)
-            .withDisplayName(CACHE_DISPLAY_NAME)
-            .withLockOptions(mode(FileLockManager.LockMode.None))
-            .open();
+    public RuntimeShadedJarFactory(GeneratedGradleJarCache cache, ProgressLoggerFactory progressLoggerFactory, DirectoryFileTreeFactory directoryFileTreeFactory) {
+        this.cache = cache;
+        this.progressLoggerFactory = progressLoggerFactory;
+        this.directoryFileTreeFactory = directoryFileTreeFactory;
     }
 
-    public File get(RuntimeShadedJarType type, final Collection<? extends File> classpath) {
-        final File jarFile = jarFile(cache, type);
-        if (!jarFile.exists()) {
-            cache.useCache("Generating " + jarFile.getName(), new Runnable() {
-                public void run() {
-                    if (!jarFile.exists()) {
-                        creator.create(jarFile, classpath);
-                    }
-                }
-            });
-        }
-
+    public File get(final RuntimeShadedJarType type, final Collection<? extends File> classpath) {
+        final File jarFile = cache.get(type.getIdentifier(), new Action<File>() {
+            @Override
+            public void execute(File file) {
+                RuntimeShadedJarCreator creator = new RuntimeShadedJarCreator(
+                    progressLoggerFactory,
+                    new ImplementationDependencyRelocator(type),
+                    directoryFileTreeFactory
+                );
+                creator.create(file, classpath);
+             }
+        });
         LOGGER.debug("Using Gradle runtime shaded JAR file: {}", jarFile);
         return jarFile;
-    }
-
-    public void close() {
-        cache.close();
-    }
-
-    private File jarFile(PersistentCache cache, RuntimeShadedJarType type) {
-        return new File(cache.getBaseDir(), "gradle-" + type.getIdentifier() + "-" + gradleVersion + ".jar");
     }
 }

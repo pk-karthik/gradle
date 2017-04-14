@@ -15,18 +15,18 @@
  */
 package org.gradle.api.internal.changedetection.state;
 
+import org.gradle.api.Nullable;
 import org.gradle.api.internal.TaskInternal;
 
 public interface TaskHistoryRepository {
     History getHistory(TaskInternal task);
 
     interface History {
+        @Nullable
         TaskExecution getPreviousExecution();
 
         TaskExecution getCurrentExecution();
 
         void update();
-
-        void finished(boolean wasUpToDate);
     }
 }

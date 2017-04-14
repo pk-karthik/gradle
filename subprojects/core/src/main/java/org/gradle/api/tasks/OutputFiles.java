@@ -29,11 +29,7 @@ import java.lang.annotation.Target;
  *
  * <p>This will cause the task to be considered out-of-date when the file paths or contents
  * are different to when the task was last run.</p>
- *
- * @deprecated Use separate properties annotated with {@literal @}{@link OutputFile} instead, or
- * reorganize outputs under a single output directory annotated with {@literal @}{@link OutputDirectory}.
  */
-@Deprecated
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.METHOD, ElementType.FIELD})

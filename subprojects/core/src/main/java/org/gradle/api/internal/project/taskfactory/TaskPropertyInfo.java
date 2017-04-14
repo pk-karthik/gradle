@@ -21,12 +21,12 @@ import org.gradle.internal.Factory;
 import org.gradle.internal.reflect.JavaReflectionUtil;
 import org.gradle.util.DeprecationLogger;
 
-import java.lang.reflect.Field;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.concurrent.Callable;
 
-public class TaskPropertyInfo implements TaskPropertyActionContext {
+public class TaskPropertyInfo implements Comparable<TaskPropertyInfo> {
     private static final ValidationAction NO_OP_VALIDATION_ACTION = new ValidationAction() {
         public void validate(String propertyName, Object value, Collection<String> messages) {
         }
@@ -47,96 +47,56 @@ public class TaskPropertyInfo implements TaskPropertyActionContext {
         }
     };
 
-    private final TaskClassValidator validator;
     private final TaskPropertyInfo parent;
     private final String propertyName;
+    private final Class<? extends Annotation> propertyType;
     private final Method method;
-    private ValidationAction validationAction = NO_OP_VALIDATION_ACTION;
-    private ValidationAction notNullValidator = NO_OP_VALIDATION_ACTION;
-    private UpdateAction configureAction = NO_OP_CONFIGURATION_ACTION;
-    private boolean validationRequired;
-    private final Field instanceVariableField;
+    private final ValidationAction validationAction;
+    private final UpdateAction configureAction;
+    private final boolean optional;
 
-    TaskPropertyInfo(TaskClassValidator validator, TaskPropertyInfo parent, String propertyName, Method method, Field instanceVariableField) {
-        this.validator = validator;
+    TaskPropertyInfo(TaskPropertyInfo parent, String propertyName, Class<? extends Annotation> propertyType, Method method, ValidationAction validationAction, UpdateAction configureAction, boolean optional) {
         this.parent = parent;
         this.propertyName = propertyName;
+        this.propertyType = propertyType;
         this.method = method;
-        this.instanceVariableField = instanceVariableField;
+        this.validationAction = validationAction == null ? NO_OP_VALIDATION_ACTION : validationAction;
+        this.configureAction = configureAction == null ? NO_OP_CONFIGURATION_ACTION : configureAction;
+        this.optional = optional;
     }
 
     @Override
     public String toString() {
-        return propertyName;
+        return String.format("@%s %s", propertyType.getSimpleName(), propertyName);
     }
 
-    @Override
     public String getName() {
         return propertyName;
     }
 
-    @Override
-    public Class<?> getType() {
-        return method.getReturnType();
-    }
-
-    @Override
-    public Class<?> getInstanceVariableType() {
-        return instanceVariableField != null ? instanceVariableField.getType() : null;
-    }
-
-    @Override
-    public Method getTarget() {
-        return method;
-    }
-
-    @Override
-    public void setValidationAction(ValidationAction action) {
-        validationAction = action;
+    public Class<? extends Annotation> getPropertyType() {
+        return propertyType;
     }
 
     public UpdateAction getConfigureAction() {
         return configureAction;
     }
 
-    @Override
-    public void setConfigureAction(UpdateAction action) {
-        configureAction = action;
-    }
-
-    public void setNotNullValidator(ValidationAction notNullValidator) {
-        this.notNullValidator = notNullValidator;
-    }
-
-    @Override
-    public void attachActions(Class<?> type) {
-        validator.attachActions(this, type);
-    }
-
-    public void attachActions(PropertyAnnotationHandler handler) {
-        if (handler.attachActions(this)) {
-            validationRequired = true;
-        }
-    }
-
-    public boolean isValidationRequired() {
-        return validationRequired;
-    }
-
     public TaskPropertyValue getValue(Object rootObject) {
-        Object bean = rootObject;
+        final Object bean;
         if (parent != null) {
             TaskPropertyValue parentValue = parent.getValue(rootObject);
             if (parentValue.getValue() == null) {
                 return NO_OP_VALUE;
             }
             bean = parentValue.getValue();
+        } else {
+            bean = rootObject;
         }
 
-        final Object finalBean = bean;
         final Object value = DeprecationLogger.whileDisabled(new Factory<Object>() {
             public Object create() {
-                return JavaReflectionUtil.method(finalBean, Object.class, method).invoke(finalBean);
+                return JavaReflectionUtil.method(Object.class, method).invoke(bean);
             }
         });
 
@@ -148,7 +108,9 @@ public class TaskPropertyInfo implements TaskPropertyActionContext {
 
             @Override
             public void checkNotNull(Collection<String> messages) {
-                notNullValidator.validate(propertyName, value, messages);
+                if (value == null && !optional) {
+                    messages.add(String.format("No value has been specified for property '%s'.", propertyName));
+                }
             }
 
             @Override
@@ -158,5 +120,10 @@ public class TaskPropertyInfo implements TaskPropertyActionContext {
                 }
             }
         };
+    }
+
+    @Override
+    public int compareTo(TaskPropertyInfo o) {
+        return propertyName.compareTo(o.getName());
     }
 }

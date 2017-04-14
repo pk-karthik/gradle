@@ -16,12 +16,17 @@
 
 package org.gradle.api.internal.runtimeshaded
 
+import groovy.transform.stc.ClosureParams
+import groovy.transform.stc.SimpleType
 import org.apache.ivy.core.settings.IvySettings
+import org.cyberneko.html.xercesbridge.XercesBridge
 import org.gradle.api.Action
+import org.gradle.api.internal.file.collections.DefaultDirectoryFileTreeFactory
 import org.gradle.internal.IoActions
 import org.gradle.internal.installation.GradleRuntimeShadedJarDetector
 import org.gradle.internal.logging.progress.ProgressLogger
 import org.gradle.internal.logging.progress.ProgressLoggerFactory
+import org.gradle.test.fixtures.file.CleanupTestDirectory
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.UsesNativeServices
@@ -36,7 +41,10 @@ import spock.lang.Specification
 import java.util.jar.JarEntry
 import java.util.jar.JarFile
 
+import static org.gradle.api.internal.runtimeshaded.RuntimeShadedJarCreator.ADDITIONAL_PROGRESS_STEPS
+
 @UsesNativeServices
+@CleanupTestDirectory(fieldName = "tmpDir")
 class RuntimeShadedJarCreatorTest extends Specification {
 
     @Rule
@@ -44,8 +52,12 @@ class RuntimeShadedJarCreatorTest extends Specification {
 
     def progressLoggerFactory = Mock(ProgressLoggerFactory)
     def progressLogger = Mock(ProgressLogger)
-    def relocatedJarCreator = new RuntimeShadedJarCreator(progressLoggerFactory)
-    def outputJar = new File(tmpDir.testDirectory, 'gradle-api.jar')
+    def relocatedJarCreator
+    def outputJar = tmpDir.testDirectory.file('gradle-api.jar')
+
+    def setup() {
+        relocatedJarCreator = new RuntimeShadedJarCreator(progressLoggerFactory, new ImplementationDependencyRelocator(RuntimeShadedJarType.API), new DefaultDirectoryFileTreeFactory())
+    }
 
     def "creates JAR file for input directory"() {
         given:
@@ -60,7 +72,7 @@ class RuntimeShadedJarCreatorTest extends Specification {
         1 * progressLogger.setDescription('Gradle JARs generation')
         1 * progressLogger.setLoggingHeader("Generating JAR file '$outputJar.name'")
         1 * progressLogger.started()
-        1 * progressLogger.progress(_)
+        (1 + ADDITIONAL_PROGRESS_STEPS) * progressLogger.progress(_)
         1 * progressLogger.completed()
         TestFile[] contents = tmpDir.testDirectory.listFiles().findAll { it.isFile() }
         contents.length == 1
@@ -84,11 +96,73 @@ class RuntimeShadedJarCreatorTest extends Specification {
         1 * progressLogger.setDescription('Gradle JARs generation')
         1 * progressLogger.setLoggingHeader("Generating JAR file '$outputJar.name'")
         1 * progressLogger.started()
-        2 * progressLogger.progress(_)
+        (2 + ADDITIONAL_PROGRESS_STEPS) * progressLogger.progress(_)
         1 * progressLogger.completed()
         TestFile[] contents = tmpDir.testDirectory.listFiles().findAll { it.isFile() }
         contents.length == 1
         contents[0] == outputJar
+    }
+
+    def "creates a reproducible jar"() {
+        given:
+
+        def inputFilesDir = tmpDir.createDir('inputFiles')
+        def jarFile1 = inputFilesDir.file('lib1.jar')
+        createJarFileWithClassFiles(jarFile1, ['org/gradle/MyClass'])
+        def jarFile2 = inputFilesDir.file('lib2.jar')
+        createJarFileWithClassFiles(jarFile2, ['org/gradle/MySecondClass'])
+        def jarFile3 = inputFilesDir.file('lib3.jar')
+        def serviceType = 'org.gradle.internal.service.scopes.PluginServiceRegistry'
+        createJarFileWithProviderConfigurationFile(jarFile3, serviceType, 'org.gradle.api.internal.artifacts.DependencyServices')
+        def jarFile4 = inputFilesDir.file('lib4.jar')
+        createJarFileWithProviderConfigurationFile(jarFile4, serviceType, """
+# This is some same file
+# Ignore comment
+org.gradle.api.internal.tasks.CompileServices
+# Too many comments""")
+        def jarFile5 = inputFilesDir.file('lib5.jar')
+        createJarFileWithResources(jarFile5, [
+            'org/gradle/reporting/report.js',
+            'net/rubygrapefruit/platform/osx-i386/libnative-platform.dylib',
+            'aQute/libg/tuple/packageinfo',
+            'org/joda/time/tz/data/Africa/Abidjan',
+            'com/sun/jna/win32-amd64/jnidispatch.dll'])
+        def jarFile6 = inputFilesDir.file('lib6.jar')
+        createJarFileWithProviderConfigurationFile(jarFile6, 'org.gradle.internal.other.Service', 'org.gradle.internal.other.ServiceImpl')
+        def inputDirectory = inputFilesDir.createDir('dir1')
+        writeClass(inputDirectory, "org/gradle/MyFirstClass")
+        writeClass(inputDirectory, "org/gradle/MyAClass")
+        writeClass(inputDirectory, "org/gradle/MyBClass")
+
+        when:
+        relocatedJarCreator.create(outputJar, [jarFile1, jarFile2, jarFile3, jarFile4, jarFile5, jarFile6, inputDirectory])
+
+        then:
+        1 * progressLoggerFactory.newOperation(RuntimeShadedJarCreator) >> progressLogger
+
+        TestFile[] contents = tmpDir.testDirectory.listFiles().findAll { it.isFile() }
+        contents.length == 1
+        contents[0] == outputJar
+        handleAsJarFile(outputJar) { JarFile file ->
+            List<JarEntry> entries = file.entries() as List
+            assert entries*.name == [
+                'org/gradle/MyClass.class',
+                'org/gradle/MySecondClass.class',
+                'aQute/libg/tuple/packageinfo',
+                'org/gradle/internal/impldep/aQute/libg/tuple/packageinfo',
+                'org/gradle/internal/impldep/com/sun/jna/win32-amd64/jnidispatch.dll',
+                'net/rubygrapefruit/platform/osx-i386/libnative-platform.dylib',
+                'org/gradle/reporting/report.js',
+                'org/joda/time/tz/data/Africa/Abidjan',
+                'org/gradle/internal/impldep/org/joda/time/tz/data/Africa/Abidjan',
+                'org/gradle/MyAClass.class',
+                'org/gradle/MyBClass.class',
+                'org/gradle/MyFirstClass.class',
+                'META-INF/services/org.gradle.internal.service.scopes.PluginServiceRegistry',
+                'META-INF/services/org.gradle.internal.other.Service',
+                'META-INF/.gradle-runtime-shaded']
+        }
+        outputJar.md5Hash == "6b67248faadbad1356001b6331810c8b"
     }
 
     def "merges provider-configuration file with the same name"() {
@@ -118,7 +192,7 @@ org.gradle.api.internal.tasks.CompileServices
         1 * progressLogger.setDescription('Gradle JARs generation')
         1 * progressLogger.setLoggingHeader("Generating JAR file '$outputJar.name'")
         1 * progressLogger.started()
-        3 * progressLogger.progress(_)
+        (3 + ADDITIONAL_PROGRESS_STEPS) * progressLogger.progress(_)
         1 * progressLogger.completed()
         TestFile[] contents = tmpDir.testDirectory.listFiles().findAll { it.isFile() }
         contents.length == 1
@@ -153,7 +227,7 @@ org.gradle.api.internal.tasks.CompileServices"""
                                       'org/apache/xerces/parsers/SAXParser',
                                       'org/w3c/dom/Document',
                                       'org/xml/sax/XMLReader']
-        def relocationClassNames = ['org/apache/commons/lang3/StringUtils',
+        def relocationClassNames = ['org/apache/commons/lang/StringUtils',
                                     'com/google/common/collect/Lists']
         def classNames = noRelocationClassNames + relocationClassNames
         def inputFilesDir = tmpDir.createDir('inputFiles')
@@ -168,7 +242,7 @@ org.gradle.api.internal.tasks.CompileServices"""
         1 * progressLogger.setDescription('Gradle JARs generation')
         1 * progressLogger.setLoggingHeader("Generating JAR file '$outputJar.name'")
         1 * progressLogger.started()
-        1 * progressLogger.progress(_)
+        (1 + ADDITIONAL_PROGRESS_STEPS) * progressLogger.progress(_)
         1 * progressLogger.completed()
         TestFile[] contents = tmpDir.testDirectory.listFiles().findAll { it.isFile() }
         contents.length == 1
@@ -190,7 +264,7 @@ org.gradle.api.internal.tasks.CompileServices"""
             assert jar.getJarEntry('org/apache/xerces/parsers/SAXParser.class')
             assert jar.getJarEntry('org/w3c/dom/Document.class')
             assert jar.getJarEntry('org/xml/sax/XMLReader.class')
-            assert jar.getJarEntry('org/gradle/internal/impldep/org/apache/commons/lang3/StringUtils.class')
+            assert jar.getJarEntry('org/gradle/internal/impldep/org/apache/commons/lang/StringUtils.class')
             assert jar.getJarEntry('org/gradle/internal/impldep/com/google/common/collect/Lists.class')
         }
     }
@@ -198,7 +272,7 @@ org.gradle.api.internal.tasks.CompileServices"""
     def "remaps old-style string class literals"() {
         given:
         def clazz = IvySettings
-        byte[] classData = clazz.getClassLoader().getResourceAsStream("${clazz.name.replace('.','/')}.class").bytes
+        byte[] classData = clazz.getClassLoader().getResourceAsStream("${clazz.name.replace('.', '/')}.class").bytes
 
         when:
         def remapped = relocatedJarCreator.remapClass(clazz.name, classData)
@@ -215,12 +289,64 @@ org.gradle.api.internal.tasks.CompileServices"""
         bytecode.contains('LDC "org.gradle.internal.impldep.org.apache.ivy.core.settings.IvySettings"')
     }
 
+    def "remaps class literals in strings"() {
+        given:
+        def clazz = XercesBridge
+        byte[] classData = clazz.getClassLoader().getResourceAsStream("${clazz.name.replace('.', '/')}.class").bytes
+
+        when:
+        def remapped = relocatedJarCreator.remapClass(clazz.name, classData)
+        def cr = new ClassReader(remapped)
+        def writer = new StringWriter()
+        def tcv = new TraceClassVisitor(new PrintWriter(writer))
+        cr.accept(tcv, 0)
+
+        then:
+        def bytecode = writer.toString()
+        !bytecode.contains('LDC "org.cyberneko.html.xercesbridge.XercesBridge_2_3"')
+        bytecode.contains('LDC "org.gradle.internal.impldep.org.cyberneko.html.xercesbridge.XercesBridge_2_3"')
+    }
+
+    def "remaps class literals in strings with slashes"() {
+        given:
+        def clazz = JavaAdapter
+        byte[] classData = clazz.getClassLoader().getResourceAsStream("${clazz.name.replace('.', '/')}.class").bytes
+
+        when:
+        def remapped = relocatedJarCreator.remapClass(clazz.name, classData)
+        def cr = new ClassReader(remapped)
+        def writer = new StringWriter()
+        def tcv = new TraceClassVisitor(new PrintWriter(writer))
+        cr.accept(tcv, 0)
+
+        then:
+        def bytecode = writer.toString()
+        !bytecode.contains('LDC "org/mozilla/javascript/Context"')
+        bytecode.contains('LDC "org/gradle/internal/impldep/org/mozilla/javascript/Context"')
+    }
+
+    def "ignores slf4j logger bindings"() {
+        given:
+        def inputFilesDir = tmpDir.createDir('inputFiles')
+        def jarFile = inputFilesDir.file('lib.jar')
+        createJarFileWithClassFiles(jarFile, ["org.slf4j.impl.StaticLoggerBinder"])
+        progressLoggerFactory.newOperation(RuntimeShadedJarCreator) >> progressLogger
+
+        when:
+        relocatedJarCreator.create(outputJar, [jarFile])
+
+        then:
+        handleAsJarFile(outputJar) {
+            it.getEntry("org/slf4j/impl/StaticLoggerBinder.class")
+        }
+    }
+
     def "remaps resources"() {
         given:
         def noRelocationResources = ['org/gradle/reporting/report.js',
-                                      'javax/servlet/http/LocalStrings.properties']
+                                     'net/rubygrapefruit/platform/osx-i386/libnative-platform.dylib']
         def duplicateResources = ['aQute/libg/tuple/packageinfo',
-                                    'org/joda/time/tz/data/Africa/Abidjan']
+                                  'org/joda/time/tz/data/Africa/Abidjan']
         def onlyRelocatedResources = ['com/sun/jna/win32-amd64/jnidispatch.dll']
         def generatedFiles = [GradleRuntimeShadedJarDetector.MARKER_FILENAME]
         def resources = noRelocationResources + duplicateResources + onlyRelocatedResources
@@ -271,7 +397,7 @@ org.gradle.api.internal.tasks.CompileServices"""
         contents.zipTo(jar)
     }
 
-    private void writeClass(TestFile outputDir, String className) {
+    private static void writeClass(TestFile outputDir, String className) {
         TestFile classFile = outputDir.createFile("${className}.class")
         ClassNode classNode = new ClassNode()
         classNode.version = Opcodes.V1_6
@@ -301,16 +427,15 @@ org.gradle.api.internal.tasks.CompileServices"""
         contents.zipTo(jar)
     }
 
-    static void handleAsJarFile(TestFile jar, Closure c) {
-        def jarFile
+    static void handleAsJarFile(File jar, @ClosureParams(value = SimpleType, options = ["java.util.jar.JarFile"]) Closure<?> c) {
+        new JarFile(jar).withCloseable(c)
+    }
 
-        try {
-            jarFile = new JarFile(jar)
-            c(jarFile)
-        } finally {
-            if (jarFile != null) {
-                jarFile.close()
-            }
+    static class JavaAdapter {
+        // emulates what is found in org.mozilla.javascript.JavaAdapter
+        // (we can't use it directly because not found on test classpath)
+        void foo() {
+            String[] classes = ['org/mozilla/javascript/Context']
         }
     }
 }

@@ -30,13 +30,19 @@ import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.groovy.scripts.StringScriptSource;
 import org.gradle.initialization.DefaultProjectDescriptor;
 import org.gradle.initialization.DefaultProjectDescriptorRegistry;
+import org.gradle.initialization.GradleLauncherFactory;
+import org.gradle.initialization.LegacyTypesSupport;
 import org.gradle.internal.FileUtils;
+import org.gradle.internal.logging.services.LoggingServiceRegistry;
 import org.gradle.internal.nativeintegration.services.NativeServices;
+import org.gradle.internal.resources.DefaultResourceLockCoordinationService;
+import org.gradle.internal.resources.ResourceLockCoordinationService;
 import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.internal.service.ServiceRegistryBuilder;
+import org.gradle.internal.service.scopes.GradleUserHomeScopeServiceRegistry;
 import org.gradle.internal.service.scopes.ServiceRegistryFactory;
+import org.gradle.internal.work.WorkerLeaseService;
 import org.gradle.invocation.DefaultGradle;
-import org.gradle.internal.logging.services.LoggingServiceRegistry;
 
 import java.io.File;
 
@@ -73,7 +79,7 @@ public class ProjectBuilderImpl {
         startParameter.setGradleUserHomeDir(userHomeDir);
         NativeServices.initialize(userHomeDir);
 
-        ServiceRegistry topLevelRegistry = new TestBuildScopeServices(getGlobalServices(), startParameter, homeDir);
+        ServiceRegistry topLevelRegistry = new TestBuildScopeServices(getUserHomeServices(userHomeDir), startParameter, homeDir);
         GradleInternal gradle = CLASS_GENERATOR.newInstance(DefaultGradle.class, null, startParameter, topLevelRegistry.get(ServiceRegistryFactory.class));
 
         DefaultProjectDescriptor projectDescriptor = new DefaultProjectDescriptor(null, name, projectDir, new DefaultProjectDescriptorRegistry(),
@@ -85,7 +91,18 @@ public class ProjectBuilderImpl {
         gradle.setRootProject(project);
         gradle.setDefaultProject(project);
 
+        // Take a root worker lease, it won't ever be released as ProjectBuilder has no lifecycle
+        ResourceLockCoordinationService coordinationService = topLevelRegistry.get(ResourceLockCoordinationService.class);
+        WorkerLeaseService workerLeaseService = topLevelRegistry.get(WorkerLeaseService.class);
+        coordinationService.withStateLock(DefaultResourceLockCoordinationService.lock(workerLeaseService.getWorkerLease()));
+
         return project;
+    }
+
+    private ServiceRegistry getUserHomeServices(File userHomeDir) {
+        ServiceRegistry globalServices = getGlobalServices();
+        GradleUserHomeScopeServiceRegistry userHomeScopeServiceRegistry = globalServices.get(GradleUserHomeScopeServiceRegistry.class);
+        return userHomeScopeServiceRegistry.getServicesFor(userHomeDir);
     }
 
     private ServiceRegistry getGlobalServices() {
@@ -97,6 +114,16 @@ public class ProjectBuilderImpl {
                     .parent(NativeServices.getInstance())
                     .provider(new TestGlobalScopeServices())
                     .build();
+            // Registers a logger that will otherwise be registered when resolving dependencies with the ProjectBuilder
+            // Without this, ProjectBuilder will fail to resolve dependencies with a strange "Logging operation was not started" error
+            globalServices.get(GradleLauncherFactory.class);
+            // Inject missing interfaces to support the usage of plugins compiled with older Gradle versions.
+            // A normal gradle build does this by adding the MixInLegacyTypesClassLoader to the class loader hierarchy.
+            // In a test run, which is essentially a plain Java application, the classpath is flattened and injected
+            // into the system class loader and there exists no Gradle class loader hierarchy in the running test. (See Implementation
+            // in ApplicationClassesInSystemClassLoaderWorkerImplementationFactory, BootstrapSecurityManager and GradleWorkerMain.)
+            // Thus, we inject the missing interfaces directly into the system class loader used to load all classes in the test.
+            globalServices.get(LegacyTypesSupport.class).injectEmptyInterfacesIntoClassLoader(getClass().getClassLoader());
         }
         return globalServices;
     }

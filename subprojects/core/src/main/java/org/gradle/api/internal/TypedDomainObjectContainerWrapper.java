@@ -23,14 +23,13 @@ import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.NamedDomainObjectSet;
 import org.gradle.api.Namer;
-import org.gradle.api.PolymorphicDomainObjectContainer;
 import org.gradle.api.Rule;
 import org.gradle.api.UnknownDomainObjectException;
-import org.gradle.api.internal.plugins.DefaultConvention;
-import org.gradle.api.plugins.Convention;
 import org.gradle.api.specs.Spec;
-import org.gradle.internal.metaobject.DynamicObject;
-import org.gradle.internal.reflect.Instantiator;
+import org.gradle.internal.metaobject.MethodAccess;
+import org.gradle.internal.metaobject.MethodMixIn;
+import org.gradle.internal.metaobject.PropertyAccess;
+import org.gradle.internal.metaobject.PropertyMixIn;
 import org.gradle.util.ConfigureUtil;
 
 import java.util.Collection;
@@ -40,21 +39,15 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.SortedSet;
 
-public class TypedDomainObjectContainerWrapper<U> implements NamedDomainObjectContainer<U>, DynamicObjectAware {
+public class TypedDomainObjectContainerWrapper<U> implements NamedDomainObjectContainer<U>, MethodMixIn, PropertyMixIn {
     private final Class<U> type;
-    private final PolymorphicDomainObjectContainer<? super U> parent;
+    private final AbstractPolymorphicDomainObjectContainer<? super U> parent;
     private final NamedDomainObjectSet<U> delegate;
-    private final Convention convention;
 
-    public TypedDomainObjectContainerWrapper(Class<U> type, PolymorphicDomainObjectContainer<? super U> parent, Instantiator instantiator) {
+    public TypedDomainObjectContainerWrapper(Class<U> type, AbstractPolymorphicDomainObjectContainer<? super U> parent) {
         this.parent = parent;
         this.type = type;
         this.delegate = parent.withType(type);
-        this.convention = new DefaultConvention(instantiator);
-    }
-
-    public Convention getConvention() {
-        return convention;
     }
 
     public U create(String name) throws InvalidUserDataException {
@@ -73,8 +66,14 @@ public class TypedDomainObjectContainerWrapper<U> implements NamedDomainObjectCo
         return parent.maybeCreate(name, type);
     }
 
-    public DynamicObject getAsDynamicObject() {
-        return ((DynamicObjectAware) delegate).getAsDynamicObject();
+    @Override
+    public MethodAccess getAdditionalMethods() {
+        return parent.getAdditionalMethods();
+    }
+
+    @Override
+    public PropertyAccess getAdditionalProperties() {
+        return parent.getAdditionalProperties();
     }
 
     public NamedDomainObjectContainer<U> configure(Closure configureClosure) {
@@ -110,6 +109,11 @@ public class TypedDomainObjectContainerWrapper<U> implements NamedDomainObjectCo
         return delegate.addRule(description, ruleAction);
     }
 
+    @Override
+    public Rule addRule(String description, Action<String> ruleAction) {
+        return delegate.addRule(description, ruleAction);
+    }
+
     public Rule addRule(Rule rule) {
         return delegate.addRule(rule);
     }
@@ -132,6 +136,11 @@ public class TypedDomainObjectContainerWrapper<U> implements NamedDomainObjectCo
 
     public U getByName(String name, Closure configureClosure) throws UnknownDomainObjectException {
         return delegate.getByName(name, configureClosure);
+    }
+
+    @Override
+    public U getByName(String name, Action<? super U> configureAction) throws UnknownDomainObjectException {
+        return delegate.getByName(name, configureAction);
     }
 
     public Namer<U> getNamer() {

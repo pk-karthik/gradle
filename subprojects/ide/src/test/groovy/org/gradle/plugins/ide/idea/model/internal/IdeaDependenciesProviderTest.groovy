@@ -16,19 +16,28 @@
 
 package org.gradle.plugins.ide.idea.model.internal
 
+import org.gradle.api.internal.artifacts.component.DefaultBuildIdentifier
+import org.gradle.api.internal.artifacts.ivyservice.projectmodule.LocalComponentRegistry
 import org.gradle.api.internal.project.ProjectInternal
-import org.gradle.internal.service.ServiceRegistry
+import org.gradle.initialization.BuildIdentity
+import org.gradle.initialization.DefaultBuildIdentity
+import org.gradle.initialization.IncludedBuildExecuter
+import org.gradle.internal.service.DefaultServiceRegistry
 import org.gradle.plugins.ide.idea.IdeaPlugin
 import org.gradle.plugins.ide.idea.model.Dependency
 import org.gradle.plugins.ide.idea.model.SingleEntryModuleLibrary
 import org.gradle.plugins.ide.internal.IdeDependenciesExtractor
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 import org.gradle.util.TestUtil
-import spock.lang.Specification
 
-public class IdeaDependenciesProviderTest extends Specification {
-    private final ProjectInternal project = TestUtil.createRootProject()
+public class IdeaDependenciesProviderTest extends AbstractProjectBuilderSpec {
+    private final ProjectInternal project = TestUtil.createRootProject(temporaryFolder.testDirectory)
     private final ProjectInternal childProject = TestUtil.createChildProject(project, "child", new File("."))
-    private final dependenciesProvider = new IdeaDependenciesProvider(Stub(ServiceRegistry))
+    def serviceRegistry = new DefaultServiceRegistry()
+        .add(LocalComponentRegistry, Stub(LocalComponentRegistry))
+        .add(IncludedBuildExecuter, Stub(IncludedBuildExecuter))
+        .add(BuildIdentity, new DefaultBuildIdentity(new DefaultBuildIdentifier("foo")))
+    private final dependenciesProvider = new IdeaDependenciesProvider(serviceRegistry)
 
     def "no dependencies test"() {
         applyPluginToProjects()
@@ -44,7 +53,7 @@ public class IdeaDependenciesProviderTest extends Specification {
         result.isEmpty()
     }
 
-    def "common dependencies"() {
+    def "dependencies are added to each required scope"() {
         applyPluginToProjects()
         project.apply(plugin: 'java')
 
@@ -57,8 +66,10 @@ public class IdeaDependenciesProviderTest extends Specification {
         def result = dependenciesProvider.provide(module)
 
         then:
-        result.size() == 2
-        assertSingleLibrary(result, 'COMPILE', 'guava.jar')
+        result.size() == 4
+        assertSingleLibrary(result, 'PROVIDED', 'guava.jar')
+        assertSingleLibrary(result, 'RUNTIME', 'guava.jar')
+        assertSingleLibrary(result, 'TEST', 'guava.jar')
         assertSingleLibrary(result, 'TEST', 'mockito.jar')
     }
 
@@ -71,9 +82,9 @@ public class IdeaDependenciesProviderTest extends Specification {
         module.offline = true
 
         when:
-        project.dependencies.add('compile', project.files('lib/guava.jar'))
+        project.dependencies.add('testRuntime', project.files('lib/guava.jar'))
         project.dependencies.add('excluded', project.files('lib/guava.jar'))
-        module.scopes.COMPILE.minus << project.configurations.getByName('excluded')
+        module.scopes.TEST.minus << project.configurations.getByName('excluded')
         def result = dependenciesProvider.provide(module)
 
         then:
@@ -90,12 +101,12 @@ public class IdeaDependenciesProviderTest extends Specification {
         module.offline = true
 
         when:
-        project.dependencies.add('compile', project.files('lib/guava.jar'))
-        project.dependencies.add('compile', project.files('lib/slf4j-api.jar'))
+        project.dependencies.add('testRuntime', project.files('lib/guava.jar'))
+        project.dependencies.add('testRuntime', project.files('lib/slf4j-api.jar'))
         project.dependencies.add('excluded1', project.files('lib/guava.jar'))
         project.dependencies.add('excluded2', project.files('lib/slf4j-api.jar'))
-        module.scopes.COMPILE.minus << project.configurations.getByName('excluded1')
-        module.scopes.COMPILE.minus << project.configurations.getByName('excluded2')
+        module.scopes.TEST.minus << project.configurations.getByName('excluded1')
+        module.scopes.TEST.minus << project.configurations.getByName('excluded2')
         def result = dependenciesProvider.provide(module)
 
         then:
@@ -133,8 +144,10 @@ public class IdeaDependenciesProviderTest extends Specification {
         def result = dependenciesProvider.provide(module)
 
         then:
-        result.size() == 1
-        result.findAll { it.scope == 'COMPILE' }.size() == 1
+        result.size() == 3
+        result.findAll { it.scope == 'PROVIDED' }.size() == 1
+        result.findAll { it.scope == 'RUNTIME' }.size() == 1
+        result.findAll { it.scope == 'TEST' }.size() == 1
     }
 
     def "test and runtime scope for the same dependency"() {
@@ -145,14 +158,12 @@ public class IdeaDependenciesProviderTest extends Specification {
         module.offline = true
 
         when:
-        project.dependencies.add('compile', project.files('lib/foo-api.jar'))
         project.dependencies.add('testCompile', project.files('lib/foo-impl.jar'))
         project.dependencies.add('runtime', project.files('lib/foo-impl.jar'))
         def result = dependenciesProvider.provide(module)
 
         then:
-        result.size() == 3
-        assertSingleLibrary(result, 'COMPILE', 'foo-api.jar')
+        result.size() == 2
         assertSingleLibrary(result, 'TEST', 'foo-impl.jar')
         assertSingleLibrary(result, 'RUNTIME', 'foo-impl.jar')
     }
@@ -165,14 +176,12 @@ public class IdeaDependenciesProviderTest extends Specification {
         module.offline = true
 
         when:
-        project.dependencies.add('compile', project.files('lib/guava.jar'))
         project.dependencies.add('compileOnly', project.files('lib/foo-api.jar'))
         project.dependencies.add('testRuntime', project.files('lib/foo-impl.jar'))
         def result = dependenciesProvider.provide(module)
 
         then:
-        result.size() == 3
-        assertSingleLibrary(result, 'COMPILE', 'guava.jar')
+        result.size() == 2
         assertSingleLibrary(result, 'PROVIDED', 'foo-api.jar')
         assertSingleLibrary(result, 'TEST', 'foo-impl.jar')
     }
@@ -192,10 +201,11 @@ public class IdeaDependenciesProviderTest extends Specification {
         def result = dependenciesProvider.provide(module)
 
         then:
-        result.size() == 4
+        result.size() == 5
         assertSingleLibrary(result, 'PROVIDED', 'foo-runtime.jar')
         assertSingleLibrary(result, 'PROVIDED', 'foo-testRuntime.jar')
         assertSingleLibrary(result, 'RUNTIME', 'foo-runtime.jar')
+        assertSingleLibrary(result, 'TEST', 'foo-runtime.jar')
         assertSingleLibrary(result, 'TEST', 'foo-testRuntime.jar')
     }
 
@@ -204,7 +214,7 @@ public class IdeaDependenciesProviderTest extends Specification {
         project.apply(plugin: 'java')
 
         def dependenciesExtractor = Spy(IdeDependenciesExtractor)
-        def dependenciesProvider = new IdeaDependenciesProvider(dependenciesExtractor, Stub(ServiceRegistry))
+        def dependenciesProvider = new IdeaDependenciesProvider(dependenciesExtractor, serviceRegistry)
         def module = project.ideaModule.module // Mock(IdeaModule)
         module.offline = true
         def extraConfiguration = project.configurations.create('extraConfiguration')
@@ -214,9 +224,9 @@ public class IdeaDependenciesProviderTest extends Specification {
         def result = dependenciesProvider.provide(module)
 
         then:
-        // only for compile, runtime, testCompile, testRuntime, compileOnly, testCompileOnly
-        6 * dependenciesExtractor.extractProjectDependencies(_, { !it.contains(extraConfiguration) }, _)
-        6 * dependenciesExtractor.extractLocalFileDependencies({ !it.contains(extraConfiguration) }, _)
+        // only for compileClasspath, runtimeClasspath, testCompileClasspath, testRuntimeClasspath
+        4 * dependenciesExtractor.extractProjectDependencies(_, { !it.contains(extraConfiguration) }, _)
+        4 * dependenciesExtractor.extractLocalFileDependencies({ !it.contains(extraConfiguration) }, _)
         // offline: 4 * dependenciesExtractor.extractRepoFileDependencies(_, { !it.contains(extraConfiguration) }, _, _, _)
         0 * dependenciesExtractor._
         result.size() == 1

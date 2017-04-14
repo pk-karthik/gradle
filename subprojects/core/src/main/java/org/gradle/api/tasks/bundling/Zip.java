@@ -60,7 +60,7 @@ public class Zip extends AbstractArchiveTask {
     @Override
     protected CopyAction createCopyAction() {
         DocumentationRegistry documentationRegistry = getServices().get(DocumentationRegistry.class);
-        return new ZipCopyAction(getArchivePath(), getCompressor(), documentationRegistry, metadataCharset);
+        return new ZipCopyAction(getArchivePath(), getCompressor(), documentationRegistry, metadataCharset, isPreserveFileTimestamps());
     }
 
     /**
@@ -142,13 +142,4 @@ public class Zip extends AbstractArchiveTask {
         this.metadataCharset = metadataCharset;
     }
 
-    /**
-     * DO NOT REMOVE.
-     *
-     * Do not use - kept for binary compatibility.
-     */
-    @SuppressWarnings("UnusedDeclaration")
-    @Deprecated
-    protected class ZipCopyActionImpl {
-    }
 }

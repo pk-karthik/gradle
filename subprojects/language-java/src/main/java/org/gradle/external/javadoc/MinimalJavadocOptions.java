@@ -16,12 +16,14 @@
 
 package org.gradle.external.javadoc;
 
+import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Console;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Optional;
-import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.process.ExecSpec;
 
 import java.io.File;
@@ -61,7 +63,7 @@ public interface MinimalJavadocOptions {
 
     MinimalJavadocOptions doclet(String docletClass);
 
-    @InputFiles
+    @Classpath
     List<File> getDocletpath();
 
     void setDocletpath(List<File> docletpath);
@@ -75,7 +77,7 @@ public interface MinimalJavadocOptions {
 
     MinimalJavadocOptions source(String source);
 
-    @InputFiles
+    @Internal
     List<File> getClasspath();
 
     void setClasspath(List<File> classpath);
@@ -84,14 +86,14 @@ public interface MinimalJavadocOptions {
 
     MinimalJavadocOptions classpath(File ... classpath);
 
-    @InputFiles
+    @Classpath
     List<File> getBootClasspath();
 
     void setBootClasspath(List<File> bootClasspath);
 
     MinimalJavadocOptions bootClasspath(File ... bootClasspath);
 
-    @Optional @InputFiles
+    @Optional @PathSensitive(PathSensitivity.RELATIVE) @InputFiles
     List<File> getExtDirs();
 
     void setExtDirs(List<File> extDirs);
@@ -140,14 +142,14 @@ public interface MinimalJavadocOptions {
 
     MinimalJavadocOptions jFlags(String ... jFlags);
 
-    @Optional @InputFiles
+    @Optional @PathSensitive(PathSensitivity.NONE) @InputFiles
     List<File> getOptionFiles();
 
     void setOptionFiles(List<File> optionFiles);
 
     MinimalJavadocOptions optionFiles(File ... argumentFiles);
 
-    @Optional @OutputDirectory
+    @Internal
     File getDestinationDirectory();
 
     void setDestinationDirectory(File directory);
@@ -170,7 +172,7 @@ public interface MinimalJavadocOptions {
 
     void write(File outputFile) throws IOException;
 
-    @Optional @Input
+    @Internal
     List<String> getSourceNames();
 
     void setSourceNames(List<String> sourceNames);

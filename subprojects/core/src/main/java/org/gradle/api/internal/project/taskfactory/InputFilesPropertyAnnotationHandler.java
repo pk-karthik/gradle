@@ -17,32 +17,23 @@ package org.gradle.api.internal.project.taskfactory;
 
 import org.gradle.api.internal.TaskInternal;
 import org.gradle.api.tasks.InputFiles;
-import org.gradle.api.tasks.SkipWhenEmpty;
+import org.gradle.api.tasks.TaskInputFilePropertyBuilder;
 
 import java.lang.annotation.Annotation;
+import java.util.Collection;
 import java.util.concurrent.Callable;
 
-public class InputFilesPropertyAnnotationHandler implements PropertyAnnotationHandler {
+public class InputFilesPropertyAnnotationHandler extends AbstractInputPropertyAnnotationHandler {
     public Class<? extends Annotation> getAnnotationType() {
         return InputFiles.class;
     }
 
-    public boolean attachActions(TaskPropertyActionContext context) {
-        final boolean isSourceFiles = context.getTarget().getAnnotation(SkipWhenEmpty.class) != null;
-        context.setConfigureAction(new UpdateAction() {
-            public void update(TaskInternal task, Callable<Object> futureValue) {
-                if (isSourceFiles) {
-                    task.getInputs().source(futureValue);
-                } else {
-                    task.getInputs().files(futureValue);
-                }
-            }
-        });
-        return true;
+    @Override
+    protected void validate(String propertyName, Object value, Collection<String> messages) {
+        // no-op
     }
 
-    @Override
-    public boolean isNotBeNullByDefault() {
-        return true;
+    protected TaskInputFilePropertyBuilder createPropertyBuilder(TaskPropertyActionContext context, TaskInternal task, Callable<Object> futureValue) {
+        return task.getInputs().files(futureValue);
     }
 }

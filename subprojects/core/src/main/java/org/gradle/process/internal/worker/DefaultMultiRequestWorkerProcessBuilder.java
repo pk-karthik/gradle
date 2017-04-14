@@ -52,7 +52,7 @@ class DefaultMultiRequestWorkerProcessBuilder<WORKER> implements MultiRequestWor
         this.workerImplementation = workerImplementation;
         this.workerProcessBuilder = workerProcessBuilder;
         workerProcessBuilder.worker(new WorkerAction(workerImplementation));
-        workerProcessBuilder.setImplementationClasspath(ClasspathUtil.getClasspath(workerImplementation.getClassLoader()));
+        workerProcessBuilder.setImplementationClasspath(ClasspathUtil.getClasspath(workerImplementation.getClassLoader()).getAsURLs());
     }
 
     @Override
@@ -112,10 +112,14 @@ class DefaultMultiRequestWorkerProcessBuilder<WORKER> implements MultiRequestWor
 
     @Override
     public WORKER build() {
+        // Always publish process info for multi-request workers
+        workerProcessBuilder.enableJvmMemoryInfoPublishing(true);
         final WorkerProcess workerProcess = workerProcessBuilder.build();
+
         return workerType.cast(Proxy.newProxyInstance(workerType.getClassLoader(), new Class[]{workerType}, new InvocationHandler() {
             private Receiver receiver = new Receiver(getBaseName());
             private RequestProtocol requestProtocol;
+
 
             @Override
             public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
@@ -129,7 +133,7 @@ class DefaultMultiRequestWorkerProcessBuilder<WORKER> implements MultiRequestWor
                     workerProcess.getConnection().useJavaSerializationForParameters(workerImplementation.getClassLoader());
                     requestProtocol = workerProcess.getConnection().addOutgoing(RequestProtocol.class);
                     workerProcess.getConnection().connect();
-                    return null;
+                    return workerProcess;
                 }
                 if (method.equals(STOP_METHOD)) {
                     if (requestProtocol != null) {

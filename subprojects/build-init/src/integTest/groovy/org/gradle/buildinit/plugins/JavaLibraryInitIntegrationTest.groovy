@@ -20,10 +20,6 @@ import org.gradle.buildinit.plugins.fixtures.WrapperTestFixture
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.DefaultTestExecutionResult
 import org.gradle.integtests.fixtures.TestExecutionResult
-import org.gradle.util.Requires
-
-import static org.gradle.buildinit.plugins.internal.JavaLibraryProjectInitDescriptor.TESTNG_JAVA6_WARNING
-import static org.gradle.util.TestPrecondition.JDK6
 
 class JavaLibraryInitIntegrationTest extends AbstractIntegrationSpec {
 
@@ -40,7 +36,7 @@ class JavaLibraryInitIntegrationTest extends AbstractIntegrationSpec {
         then:
         file(SAMPLE_LIBRARY_CLASS).exists()
         file(SAMPLE_LIBRARY_TEST_CLASS).exists()
-        buildFile.exists()
+        buildFileSeparatesImplementationAndApi()
         settingsFile.exists()
         wrapper.generated()
 
@@ -58,7 +54,7 @@ class JavaLibraryInitIntegrationTest extends AbstractIntegrationSpec {
         then:
         file(SAMPLE_LIBRARY_CLASS).exists()
         file(SAMPLE_SPOCK_LIBRARY_TEST_CLASS).exists()
-        buildFile.exists()
+        buildFileSeparatesImplementationAndApi('org.spockframework')
         settingsFile.exists()
         wrapper.generated()
 
@@ -76,7 +72,7 @@ class JavaLibraryInitIntegrationTest extends AbstractIntegrationSpec {
         then:
         file(SAMPLE_LIBRARY_CLASS).exists()
         file(SAMPLE_LIBRARY_TEST_CLASS).exists()
-        buildFile.exists()
+        buildFileSeparatesImplementationAndApi('org.testng')
         settingsFile.exists()
         wrapper.generated()
 
@@ -85,15 +81,6 @@ class JavaLibraryInitIntegrationTest extends AbstractIntegrationSpec {
 
         then:
         assertTestPassed("someLibraryMethodReturnsTrue")
-    }
-
-    @Requires(JDK6)
-    def "prints a warning when testng is used with java 6"() {
-        when:
-        succeeds('init', '--type', 'java-library', '--test-framework', 'testng')
-
-        then:
-        result.output.contains(TESTNG_JAVA6_WARNING)
     }
 
     def "setupProjectLayout is skipped when java sources detected"() {
@@ -116,7 +103,7 @@ class JavaLibraryInitIntegrationTest extends AbstractIntegrationSpec {
         then:
         !file(SAMPLE_LIBRARY_CLASS).exists()
         !file(SAMPLE_LIBRARY_TEST_CLASS).exists()
-        buildFile.exists()
+        buildFileSeparatesImplementationAndApi()
         settingsFile.exists()
         wrapper.generated()
     }
@@ -125,5 +112,13 @@ class JavaLibraryInitIntegrationTest extends AbstractIntegrationSpec {
         TestExecutionResult testResult = new DefaultTestExecutionResult(testDirectory)
         testResult.assertTestClassesExecuted("LibraryTest")
         testResult.testClass("LibraryTest").assertTestPassed(name)
+    }
+
+    private void buildFileSeparatesImplementationAndApi(String testFramework = 'junit:junit:') {
+        assert buildFile.exists()
+        def text = buildFile.text
+        assert text.contains("api 'org.apache.commons:commons-math3")
+        assert text.contains("implementation 'com.google.guava:guava:")
+        assert text.contains("testImplementation '$testFramework")
     }
 }

@@ -33,10 +33,15 @@ import org.gradle.cache.internal.DefaultCacheRepository
 import org.gradle.cache.internal.DefaultCacheScopeMapping
 import org.gradle.internal.id.LongIdGenerator
 import org.gradle.internal.installation.CurrentGradleInstallation
+import org.gradle.internal.jvm.inspection.CachingJvmVersionDetector
+import org.gradle.internal.jvm.inspection.DefaultJvmVersionDetector
+import org.gradle.internal.logging.TestOutputEventListener
+import org.gradle.internal.logging.events.OutputEventListener
 import org.gradle.internal.remote.MessagingServer
 import org.gradle.internal.service.DefaultServiceRegistry
 import org.gradle.internal.service.ServiceRegistryBuilder
 import org.gradle.internal.service.scopes.GlobalScopeServices
+import org.gradle.process.internal.health.memory.MemoryManager
 import org.gradle.process.internal.worker.DefaultWorkerProcessFactory
 import org.gradle.process.internal.worker.child.WorkerProcessClassPathProvider
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
@@ -61,7 +66,9 @@ abstract class AbstractWorkerProcessIntegrationSpec extends Specification {
     final CacheRepository cacheRepository = new DefaultCacheRepository(scopeMapping, factory)
     final ModuleRegistry moduleRegistry = new DefaultModuleRegistry(CurrentGradleInstallation.get())
     final ClassPathRegistry classPathRegistry = new DefaultClassPathRegistry(new DefaultClassPathProvider(moduleRegistry), new WorkerProcessClassPathProvider(cacheRepository))
-    final DefaultWorkerProcessFactory workerFactory = new DefaultWorkerProcessFactory(LogLevel.LIFECYCLE, server, classPathRegistry, new LongIdGenerator(), null, new TmpDirTemporaryFileProvider(), TestFiles.javaExecHandleFactory(tmpDir.testDirectory))
+    final JavaExecHandleFactory execHandleFactory = TestFiles.javaExecHandleFactory(tmpDir.testDirectory)
+    final OutputEventListener outputEventListener = new TestOutputEventListener()
+    DefaultWorkerProcessFactory workerFactory = new DefaultWorkerProcessFactory(LogLevel.DEBUG, server, classPathRegistry, new LongIdGenerator(), null, new TmpDirTemporaryFileProvider(), execHandleFactory, new CachingJvmVersionDetector(new DefaultJvmVersionDetector(execHandleFactory)), outputEventListener, Stub(MemoryManager))
 
     def cleanup() {
         services.close()

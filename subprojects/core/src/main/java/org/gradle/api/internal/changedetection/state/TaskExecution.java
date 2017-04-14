@@ -15,29 +15,51 @@
  */
 package org.gradle.api.internal.changedetection.state;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
+import org.gradle.api.internal.TaskExecutionHistory;
 
-import java.util.Map;
-import java.util.Set;
+import java.util.List;
 
 /**
- * The persistent state for a single task execution.
+ * The state for a single task execution.
  */
 public abstract class TaskExecution {
     private String taskClass;
     private HashCode taskClassLoaderHash;
-    private HashCode taskActionsClassLoaderHash;
-    private Map<String, Object> inputProperties;
-    private Set<String> outputFiles;
-    private Integer outputFilesHash;
-    private Integer inputFilesHash;
+    private List<HashCode> taskActionsClassLoaderHashes;
+    private ImmutableSortedMap<String, ValueSnapshot> inputProperties;
+    private Iterable<String> outputPropertyNamesForCacheKey;
+    private ImmutableSet<String> declaredOutputFilePaths;
+    private TaskExecutionHistory.OverlappingOutputs detectedOverlappingOutputs;
 
-    public Set<String> getOutputFiles() {
-        return outputFiles;
+    /**
+     * Returns the names of all cacheable output property names that have a value set.
+     * The collection includes names of properties declared via mapped plural outputs,
+     * and excludes optional properties that don't have a value set. If the task is not
+     * cacheable, it returns an empty collection.
+     */
+    public ImmutableSortedSet<String> getOutputPropertyNamesForCacheKey() {
+        return ImmutableSortedSet.copyOf(outputPropertyNamesForCacheKey);
     }
 
-    public void setOutputFiles(Set<String> outputFiles) {
-        this.outputFiles = outputFiles;
+    public void setOutputPropertyNamesForCacheKey(Iterable<String> outputPropertyNames) {
+        this.outputPropertyNamesForCacheKey = outputPropertyNames;
+    }
+
+    /**
+     * Returns the absolute path of every declared output file and directory.
+     * The returned set includes potentially missing files as well, and does
+     * not include the resolved contents of directories.
+     */
+    public ImmutableSet<String> getDeclaredOutputFilePaths() {
+        return declaredOutputFilePaths;
+    }
+
+    public void setDeclaredOutputFilePaths(ImmutableSet<String> declaredOutputFilePaths) {
+        this.declaredOutputFilePaths = declaredOutputFilePaths;
     }
 
     public String getTaskClass() {
@@ -56,53 +78,42 @@ public abstract class TaskExecution {
         this.taskClassLoaderHash = taskClassLoaderHash;
     }
 
-    public HashCode getTaskActionsClassLoaderHash() {
-        return taskActionsClassLoaderHash;
+    public List<HashCode> getTaskActionsClassLoaderHashes() {
+        return taskActionsClassLoaderHashes;
     }
 
-    public void setTaskActionsClassLoaderHash(HashCode taskActionsClassLoaderHash) {
-        this.taskActionsClassLoaderHash = taskActionsClassLoaderHash;
+    public void setTaskActionsClassLoaderHashes(List<HashCode> taskActionsClassLoaderHashes) {
+        this.taskActionsClassLoaderHashes = taskActionsClassLoaderHashes;
     }
 
-    public Map<String, Object> getInputProperties() {
+    public ImmutableSortedMap<String, ValueSnapshot> getInputProperties() {
         return inputProperties;
     }
 
-    public void setInputProperties(Map<String, Object> inputProperties) {
+    public void setInputProperties(ImmutableSortedMap<String, ValueSnapshot> inputProperties) {
         this.inputProperties = inputProperties;
     }
 
     /**
      * @return May return null.
      */
-    public abstract FileCollectionSnapshot getOutputFilesSnapshot();
+    public abstract ImmutableSortedMap<String, FileCollectionSnapshot> getOutputFilesSnapshot();
 
-    public abstract void setOutputFilesSnapshot(FileCollectionSnapshot outputFilesSnapshot);
+    public abstract void setOutputFilesSnapshot(ImmutableSortedMap<String, FileCollectionSnapshot> outputFilesSnapshot);
 
-    /**
-     * @return May return null.
-     */
-    public abstract FileCollectionSnapshot getInputFilesSnapshot();
+    public abstract ImmutableSortedMap<String, FileCollectionSnapshot> getInputFilesSnapshot();
 
-    public abstract void setInputFilesSnapshot(FileCollectionSnapshot inputFilesSnapshot);
+    public abstract void setInputFilesSnapshot(ImmutableSortedMap<String, FileCollectionSnapshot> inputFilesSnapshot);
 
     public abstract FileCollectionSnapshot getDiscoveredInputFilesSnapshot();
 
     public abstract void setDiscoveredInputFilesSnapshot(FileCollectionSnapshot inputFilesSnapshot);
 
-    public Integer getOutputFilesHash() {
-        return outputFilesHash;
+    public TaskExecutionHistory.OverlappingOutputs getDetectedOverlappingOutputs() {
+        return detectedOverlappingOutputs;
     }
 
-    public void setOutputFilesHash(Integer outputFilesHash) {
-        this.outputFilesHash = outputFilesHash;
-    }
-
-    public Integer getInputFilesHash() {
-        return inputFilesHash;
-    }
-
-    public void setInputFilesHash(Integer inputFilesHash) {
-        this.inputFilesHash = inputFilesHash;
+    public void setDetectedOverlappingOutputs(TaskExecutionHistory.OverlappingOutputs detectedOverlappingOutputs) {
+        this.detectedOverlappingOutputs = detectedOverlappingOutputs;
     }
 }

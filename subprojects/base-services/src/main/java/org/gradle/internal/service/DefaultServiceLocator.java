@@ -24,7 +24,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Enumeration;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Uses the Jar service resource specification to locate service implementations.
@@ -72,15 +77,21 @@ public class DefaultServiceLocator implements ServiceLocator {
         return factories.get(0);
     }
 
-    private <T> List<ServiceFactory<T>> findFactoriesForServiceType(Class<T> serviceType) {
-        List<Class<? extends T>> implementationClasses;
+    public <T> List<Class<? extends T>> implementationsOf(Class<T> serviceType) {
         try {
-            implementationClasses = findServiceImplementations(serviceType);
+            return findServiceImplementations(serviceType);
         } catch (ServiceLookupException e) {
             throw e;
         } catch (Exception e) {
             throw new ServiceLookupException(String.format("Could not determine implementation classes for service '%s'.", serviceType.getName()), e);
         }
+    }
+
+    private <T> List<ServiceFactory<T>> findFactoriesForServiceType(Class<T> serviceType) {
+        return factoriesFor(serviceType, implementationsOf(serviceType));
+    }
+
+    private <T> List<ServiceFactory<T>> factoriesFor(Class<T> serviceType, List<Class<? extends T>> implementationClasses) {
         List<ServiceFactory<T>> factories = new ArrayList<ServiceFactory<T>>();
         for (Class<? extends T> implementationClass : implementationClasses) {
             factories.add(new ServiceFactory<T>(serviceType, implementationClass));
@@ -102,7 +113,7 @@ public class DefaultServiceLocator implements ServiceLocator {
                     if (implementationClassNamesFromResource.isEmpty()) {
                         throw new RuntimeException(String.format("No implementation class for service '%s' specified.", serviceType.getName()));
                     }
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     throw new ServiceLookupException(String.format("Could not determine implementation class for service '%s' specified in resource '%s'.", serviceType.getName(), resource), e);
                 }
 
@@ -114,7 +125,7 @@ public class DefaultServiceLocator implements ServiceLocator {
                                 throw new RuntimeException(String.format("Implementation class '%s' is not assignable to service class '%s'.", implementationClassName, serviceType.getName()));
                             }
                             implementations.add(implClass.asSubclass(serviceType));
-                        } catch (Exception e) {
+                        } catch (Throwable e) {
                             throw new ServiceLookupException(String.format("Could not load implementation class '%s' for service '%s' specified in resource '%s'.", implementationClassName, serviceType.getName(), resource), e);
                         }
                     }
@@ -128,15 +139,15 @@ public class DefaultServiceLocator implements ServiceLocator {
         InputStream inputStream = resource.openStream();
         try {
             BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, "UTF-8"));
-            List<String> implemetationClassNames = new ArrayList<String>();
+            List<String> implementationClassNames = new ArrayList<String>();
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.replaceAll("#.*", "").trim();
                 if (line.length() > 0) {
-                    implemetationClassNames.add(line);
+                    implementationClassNames.add(line);
                 }
             }
-            return implemetationClassNames;
+            return implementationClassNames;
         } finally {
             inputStream.close();
         }

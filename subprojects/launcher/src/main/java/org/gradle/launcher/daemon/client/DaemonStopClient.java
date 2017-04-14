@@ -20,6 +20,10 @@ import org.gradle.api.GradleException;
 import org.gradle.api.internal.specs.ExplainingSpec;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
+import org.gradle.internal.time.CountdownTimer;
+import org.gradle.internal.time.TimeProvider;
+import org.gradle.internal.time.Timers;
+import org.gradle.internal.time.TrueTimeProvider;
 import org.gradle.internal.id.IdGenerator;
 import org.gradle.launcher.daemon.context.DaemonConnectDetails;
 import org.gradle.launcher.daemon.context.DaemonContext;
@@ -30,6 +34,7 @@ import org.gradle.launcher.daemon.protocol.StopWhenIdle;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * <p>To stop a daemon:</p>
@@ -50,6 +55,7 @@ public class DaemonStopClient {
     private final DaemonConnector connector;
     private final IdGenerator<?> idGenerator;
     private final StopDispatcher stopDispatcher;
+    private final TimeProvider timeProvider = new TrueTimeProvider();
 
     public DaemonStopClient(DaemonConnector connector, IdGenerator<?> idGenerator) {
         this.connector = connector;
@@ -80,8 +86,7 @@ public class DaemonStopClient {
      * Stops all daemons, blocking until all have completed.
      */
     public void stop() {
-        long start = System.currentTimeMillis();
-        long expiry = start + STOP_TIMEOUT_SECONDS * 1000;
+        CountdownTimer timer = Timers.startTimer(STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         final Set<String> seen = new HashSet<String>();
 
         ExplainingSpec<DaemonContext> spec = new ExplainingSpec<DaemonContext>() {
@@ -102,16 +107,17 @@ public class DaemonStopClient {
             return;
         }
 
-        LOGGER.lifecycle("Stopping daemon(s).");
+        LOGGER.lifecycle("Stopping Daemon(s)");
 
         //iterate and stop all daemons
-        while (connection != null && System.currentTimeMillis() < expiry) {
+        int numStopped = 0;
+        while (connection != null && !timer.hasExpired()) {
             try {
                 seen.add(connection.getDaemon().getUid());
                 LOGGER.debug("Requesting daemon {} stop now", connection.getDaemon());
                 boolean stopped = stopDispatcher.dispatch(connection, new Stop(idGenerator.generateId(), connection.getDaemon().getToken()));
                 if (stopped) {
-                    LOGGER.lifecycle("Gradle daemon stopped.");
+                    numStopped++;
                 }
             } finally {
                 connection.stop();
@@ -119,8 +125,12 @@ public class DaemonStopClient {
             connection = connector.maybeConnect(spec);
         }
 
+        if (numStopped > 0) {
+            LOGGER.lifecycle(numStopped + " Daemon" + ((numStopped > 1) ? "s" : "") + " stopped");
+        }
+
         if (connection != null) {
-            throw new GradleException(String.format("Timeout waiting for all daemons to stop. Waited %s seconds.", (System.currentTimeMillis() - start) / 1000));
+            throw new GradleException(String.format("Timeout waiting for all daemons to stop. Waited %s.", timer.getElapsed()));
         }
     }
 }

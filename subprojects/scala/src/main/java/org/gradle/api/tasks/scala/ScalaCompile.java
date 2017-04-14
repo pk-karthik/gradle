@@ -18,14 +18,13 @@ package org.gradle.api.tasks.scala;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.internal.project.ProjectInternal;
-import org.gradle.api.internal.tasks.compile.daemon.CompilerDaemonFactory;
-import org.gradle.api.internal.tasks.compile.daemon.CompilerDaemonManager;
 import org.gradle.api.internal.tasks.scala.ScalaCompileSpec;
 import org.gradle.api.internal.tasks.scala.ScalaCompilerFactory;
 import org.gradle.api.internal.tasks.scala.ScalaJavaJointCompileSpec;
-import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Nested;
 import org.gradle.language.scala.tasks.AbstractScalaCompile;
+import org.gradle.workers.internal.WorkerDaemonFactory;
 
 import javax.inject.Inject;
 
@@ -53,7 +52,7 @@ public class ScalaCompile extends AbstractScalaCompile {
     /**
      * Returns the classpath to use to load the Scala compiler.
      */
-    @InputFiles
+    @Classpath
     public FileCollection getScalaClasspath() {
         return scalaClasspath;
     }
@@ -65,7 +64,7 @@ public class ScalaCompile extends AbstractScalaCompile {
     /**
      * Returns the classpath to use to load the Zinc incremental compiler. This compiler in turn loads the Scala compiler.
      */
-    @InputFiles
+    @Classpath
     public FileCollection getZincClasspath() {
         return zincClasspath;
     }
@@ -85,9 +84,9 @@ public class ScalaCompile extends AbstractScalaCompile {
         assertScalaClasspathIsNonEmpty();
         if (compiler == null) {
             ProjectInternal projectInternal = (ProjectInternal) getProject();
-            CompilerDaemonFactory compilerDaemonFactory = getServices().get(CompilerDaemonManager.class);
+            WorkerDaemonFactory workerDaemonFactory = getServices().get(WorkerDaemonFactory.class);
             ScalaCompilerFactory scalaCompilerFactory = new ScalaCompilerFactory(
-                projectInternal.getRootProject().getProjectDir(), compilerDaemonFactory, getScalaClasspath(),
+                projectInternal.getRootProject().getProjectDir(), workerDaemonFactory, getScalaClasspath(),
                 getZincClasspath(), getProject().getGradle().getGradleUserHomeDir());
             compiler = scalaCompilerFactory.newCompiler(spec);
         }

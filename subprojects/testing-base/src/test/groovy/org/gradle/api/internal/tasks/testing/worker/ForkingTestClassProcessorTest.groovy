@@ -31,17 +31,18 @@ import spock.lang.Specification
 import spock.lang.Subject
 
 class ForkingTestClassProcessorTest extends Specification {
-
     WorkerProcessFactory workerProcessFactory = Mock(WorkerProcessFactory)
     WorkerProcessBuilder workerProcessBuilder = Mock(WorkerProcessBuilder)
     WorkerProcess workerProcess = Mock(WorkerProcess)
     ModuleRegistry moduleRegistry = Mock(ModuleRegistry)
+
     @Subject
         processor = Spy(ForkingTestClassProcessor, constructorArgs: [workerProcessFactory, Mock(WorkerTestClassProcessorFactory), Mock(JavaForkOptions), [new File("classpath.jar")], Mock(Action), moduleRegistry])
 
-    def "starts worker process on first test"() {
+    def "acquires worker lease and starts worker process on first test"() {
         def test1 = Mock(TestClassRunInfo)
         def test2 = Mock(TestClassRunInfo)
+
         def remoteProcessor = Mock(RemoteTestClassProcessor)
 
         when:
@@ -65,9 +66,9 @@ class ForkingTestClassProcessorTest extends Specification {
         processor.forkProcess()
 
         then:
-        8 * moduleRegistry.getModule(_) >> { module(it[0]) }
+        10 * moduleRegistry.getModule(_) >> { module(it[0]) }
         7 * moduleRegistry.getExternalModule(_) >> { module(it[0]) }
-        1 * workerProcessBuilder.setImplementationClasspath(_) >> { assert it[0].size() == 15 }
+        1 * workerProcessBuilder.setImplementationClasspath(_) >> { assert it[0].size() == 17 }
     }
 
     def module(String module) {

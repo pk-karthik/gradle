@@ -16,82 +16,70 @@
 
 package org.gradle.api.internal.changedetection.rules;
 
-import com.google.common.collect.Iterators;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.Maps;
+import org.gradle.api.Nullable;
+import org.gradle.api.internal.TaskExecutionHistory;
 import org.gradle.api.internal.TaskInternal;
 import org.gradle.api.internal.changedetection.state.FileCollectionSnapshot;
-import org.gradle.api.internal.changedetection.state.OutputFilesCollectionSnapshotter;
+import org.gradle.api.internal.changedetection.state.FileCollectionSnapshotterRegistry;
+import org.gradle.api.internal.changedetection.state.OutputFilesSnapshotter;
 import org.gradle.api.internal.changedetection.state.TaskExecution;
 
-import java.util.EnumSet;
-import java.util.Iterator;
+import java.util.Map;
 
-public class OutputFilesTaskStateChanges extends AbstractFileSnapshotTaskStateChanges {
-    private final TaskExecution previousExecution;
-    private final TaskExecution currentExecution;
-    private final TaskInternal task;
-    private final OutputFilesCollectionSnapshotter outputFilesSnapshotter;
-    private final FileCollectionSnapshot.PreCheck outputFilesBeforePreCheck;
-    private final boolean noChanges;
-    private FileCollectionSnapshot outputFilesBefore;
+public class OutputFilesTaskStateChanges extends AbstractNamedFileSnapshotTaskStateChanges {
+    private final OutputFilesSnapshotter outputSnapshotter;
 
-    public OutputFilesTaskStateChanges(TaskExecution previousExecution, TaskExecution currentExecution, TaskInternal task, OutputFilesCollectionSnapshotter outputFilesSnapshotter) {
-        super(task.getName());
-        this.previousExecution = previousExecution;
-        this.currentExecution = currentExecution;
-        this.task = task;
-        this.outputFilesSnapshotter = outputFilesSnapshotter;
-        outputFilesBeforePreCheck = createSnapshotPreCheck(outputFilesSnapshotter, task.getOutputs().getFiles());
-        this.noChanges = previousExecution != null && previousExecution.getOutputFilesHash() != null && previousExecution.getOutputFilesHash().equals(outputFilesBeforePreCheck.getHash());
+    public OutputFilesTaskStateChanges(@Nullable TaskExecution previous, TaskExecution current, TaskInternal task, FileCollectionSnapshotterRegistry snapshotterRegistry, OutputFilesSnapshotter outputSnapshotter) {
+        super(task.getName(), previous, current, snapshotterRegistry, "Output", task.getOutputs().getFileProperties());
+        this.outputSnapshotter = outputSnapshotter;
+        detectOverlappingOutputs();
     }
 
     @Override
-    protected String getInputFileType() {
-        return "Output";
-    }
-
-    @Override
-    public FileCollectionSnapshot getPrevious() {
-        return previousExecution.getOutputFilesSnapshot();
-    }
-
-    @Override
-    public FileCollectionSnapshot getCurrent() {
-        if (outputFilesBefore == null) {
-            outputFilesBefore = outputFilesSnapshotter.snapshot(outputFilesBeforePreCheck);
-        }
-        return outputFilesBefore;
-    }
-
-    @Override
-    protected FileCollectionSnapshot.ChangeIterator<String> getChanges() {
-        return getCurrent().iterateContentChangesSince(getPrevious(), EnumSet.of(FileCollectionSnapshot.ChangeFilter.IgnoreAddedFiles));
+    public ImmutableSortedMap<String, FileCollectionSnapshot> getPrevious() {
+        return previous.getOutputFilesSnapshot();
     }
 
     @Override
     public void saveCurrent() {
-        FileCollectionSnapshot lastExecutionOutputFiles;
-        if (previousExecution == null || previousExecution.getOutputFilesSnapshot() == null) {
-            lastExecutionOutputFiles = outputFilesSnapshotter.emptySnapshot();
-        } else {
-            lastExecutionOutputFiles = previousExecution.getOutputFilesSnapshot();
-        }
+        final ImmutableSortedMap<String, FileCollectionSnapshot> outputFilesAfter = buildSnapshots(getTaskName(), getSnapshotterRegistry(), getTitle(), getFileProperties());
 
-        FileCollectionSnapshot.PreCheck outputFilesAfterPreCheck = createSnapshotPreCheck(outputFilesSnapshotter, task.getOutputs().getFiles());
-        FileCollectionSnapshot outputFilesAfter = createSnapshot(outputFilesSnapshotter, outputFilesAfterPreCheck);
-        currentExecution.setOutputFilesSnapshot(outputFilesSnapshotter.createOutputSnapshot(lastExecutionOutputFiles, outputFilesBefore, outputFilesAfter, task.getOutputs().getFiles()));
-        currentExecution.setOutputFilesHash(outputFilesAfterPreCheck.getHash());
+        ImmutableSortedMap<String, FileCollectionSnapshot> results = ImmutableSortedMap.copyOfSorted(Maps.transformEntries(getCurrent(), new Maps.EntryTransformer<String, FileCollectionSnapshot, FileCollectionSnapshot>() {
+            @Override
+            public FileCollectionSnapshot transformEntry(String propertyName, FileCollectionSnapshot beforeExecution) {
+                FileCollectionSnapshot afterExecution = outputFilesAfter.get(propertyName);
+                FileCollectionSnapshot afterPreviousExecution = getSnapshotAfterPreviousExecution(propertyName);
+                return outputSnapshotter.createOutputSnapshot(afterPreviousExecution, beforeExecution, afterExecution);
+            }
+        }));
+        current.setOutputFilesSnapshot(results);
     }
 
-    @Override
-    protected boolean isAllowSnapshotReuse() {
-        return false;
+    private FileCollectionSnapshot getSnapshotAfterPreviousExecution(String propertyName) {
+        if (previous != null) {
+            Map<String, FileCollectionSnapshot> previousSnapshots = previous.getOutputFilesSnapshot();
+            if (previousSnapshots != null) {
+                FileCollectionSnapshot afterPreviousExecution = previousSnapshots.get(propertyName);
+                if (afterPreviousExecution != null) {
+                    return afterPreviousExecution;
+                }
+            }
+        }
+        return FileCollectionSnapshot.EMPTY;
     }
 
-    @Override
-    public Iterator<TaskStateChange> iterator() {
-        if (noChanges) {
-            return Iterators.emptyIterator();
+    private void detectOverlappingOutputs() {
+        for (Map.Entry<String, FileCollectionSnapshot> entry : getCurrent().entrySet()) {
+            String propertyName = entry.getKey();
+            FileCollectionSnapshot beforeExecution = entry.getValue();
+            FileCollectionSnapshot afterPreviousExecution = getSnapshotAfterPreviousExecution(propertyName);
+            TaskExecutionHistory.OverlappingOutputs overlappingOutputs = outputSnapshotter.detectOverlappingOutputs(propertyName, afterPreviousExecution, beforeExecution);
+            if (overlappingOutputs !=null) {
+                current.setDetectedOverlappingOutputs(overlappingOutputs);
+                return;
+            }
         }
-        return super.iterator();
     }
 }

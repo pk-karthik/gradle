@@ -142,6 +142,9 @@
                 <td>org.gradle.api.initialization.Settings</td>
             </tr>
             <tr>
+                <td>org.gradle.api.initialization.IncludedBuild</td>
+            </tr>
+            <tr>
                 <td>org.gradle.api.Script</td>
             </tr>
             <tr>
@@ -223,6 +226,9 @@
                 <td>org.gradle.plugin.use.PluginDependencySpec</td>
             </tr>
             <tr>
+                <td>org.gradle.plugin.management.PluginManagementSpec</td>
+            </tr>
+            <tr>
                 <td>org.gradle.plugin.repository.PluginRepositoriesSpec</td>
             </tr>
             <tr>
@@ -290,6 +296,23 @@
     </section>
 
     <section>
+        <title>Build Cache types</title>
+        <para>Types used to connect to and configure the build cache:</para>
+        <table>
+            <title>Build Cache types</title>
+            <tr>
+                <td>org.gradle.caching.configuration.BuildCacheConfiguration</td>
+            </tr>
+            <tr>
+                <td>org.gradle.caching.local.DirectoryBuildCache</td>
+            </tr>
+            <tr>
+                <td>org.gradle.caching.http.HttpBuildCache</td>
+            </tr>
+        </table>
+    </section>
+
+    <section>
         <title>Help Task types</title>
         <para>Below are the task types that are available for every Gradle project.
             Those task types can also be declared and configured directly in the build script.
@@ -313,6 +336,9 @@
             </tr>
             <tr>
                 <td>org.gradle.api.reporting.components.ComponentReport</td>
+            </tr>
+            <tr>
+                <td>org.gradle.api.reporting.dependents.DependentComponentsReport</td>
             </tr>
             <tr>
                 <td>org.gradle.api.reporting.model.ModelReport</td>
@@ -386,6 +412,9 @@
                 <td>org.gradle.testing.jacoco.tasks.JacocoMerge</td>
             </tr>
             <tr>
+                <td>org.gradle.testing.jacoco.tasks.JacocoCoverageVerification</td>
+            </tr>
+            <tr>
                 <td>org.gradle.api.tasks.bundling.Jar</td>
             </tr>
             <tr>
@@ -399,15 +428,6 @@
             </tr>
             <tr>
                 <td>org.gradle.api.plugins.quality.JDepend</td>
-            </tr>
-            <tr>
-                <td>org.gradle.api.plugins.jetty.JettyRun</td>
-            </tr>
-            <tr>
-                <td>org.gradle.api.plugins.jetty.JettyRunWar</td>
-            </tr>
-            <tr>
-                <td>org.gradle.api.plugins.jetty.JettyStop</td>
             </tr>
             <tr>
                 <td>org.gradle.api.plugins.quality.Pmd</td>
@@ -450,6 +470,9 @@
             </tr>
             <tr>
                 <td>org.gradle.api.tasks.wrapper.Wrapper</td>
+            </tr>
+            <tr>
+                <td>org.gradle.api.tasks.WriteProperties</td>
             </tr>
             <tr>
                 <td>org.gradle.api.tasks.bundling.Zip</td>
@@ -592,6 +615,15 @@
                 <td>org.gradle.nativeplatform.NativeLibrarySpec</td>
             </tr>
             <tr>
+                <td>org.gradle.nativeplatform.test.NativeTestSuiteSpec</td>
+            </tr>
+            <tr>
+                <td>org.gradle.nativeplatform.test.cunit.CUnitTestSuiteSpec</td>
+            </tr>
+            <tr>
+                <td>org.gradle.nativeplatform.test.googletest.GoogleTestTestSuiteSpec</td>
+            </tr>
+            <tr>
                 <td>org.gradle.nativeplatform.NativeBinarySpec</td>
             </tr>
             <tr>
@@ -605,6 +637,15 @@
             </tr>
             <tr>
                 <td>org.gradle.nativeplatform.StaticLibraryBinarySpec</td>
+            </tr>
+            <tr>
+                <td>org.gradle.nativeplatform.test.NativeTestSuiteBinarySpec</td>
+            </tr>
+            <tr>
+                <td>org.gradle.nativeplatform.test.cunit.CUnitTestSuiteBinarySpec</td>
+            </tr>
+            <tr>
+                <td>org.gradle.nativeplatform.test.googletest.GoogleTestTestSuiteBinarySpec</td>
             </tr>
             <tr>
                 <td>org.gradle.nativeplatform.platform.NativePlatform</td>
@@ -623,18 +664,6 @@
             </tr>
             <tr>
                 <td>org.gradle.nativeplatform.toolchain.VisualCpp</td>
-            </tr>
-            <tr>
-                <td>org.gradle.nativeplatform.test.NativeTestSuiteSpec</td>
-            </tr>
-            <tr>
-                <td>org.gradle.nativeplatform.test.NativeTestSuiteBinarySpec</td>
-            </tr>
-            <tr>
-                <td>org.gradle.nativeplatform.test.cunit.CUnitTestSuiteSpec</td>
-            </tr>
-            <tr>
-                <td>org.gradle.nativeplatform.test.googletest.GoogleTestTestSuiteSpec</td>
             </tr>
             <tr>
                 <td>org.gradle.language.assembler.AssemblerSourceSet</td>

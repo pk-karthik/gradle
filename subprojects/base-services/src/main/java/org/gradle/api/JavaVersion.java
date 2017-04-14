@@ -15,6 +15,8 @@
  */
 package org.gradle.api;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -80,17 +82,24 @@ public enum JavaVersion {
         return currentJavaVersion;
     }
 
-    // For testing current() method
+    @VisibleForTesting
     static void resetCurrent() {
         currentJavaVersion = null;
     }
 
     public static JavaVersion forClassVersion(int classVersion) {
         int index = classVersion - 45; //class file versions: 1.1 == 45, 1.2 == 46...
-        if (index > 0 && index < values().length && values()[index].hasMajorVersion) {
+        if (index >= 0 && index < values().length) {
             return values()[index];
         }
         throw new IllegalArgumentException(String.format("Could not determine java version from '%d'.", classVersion));
+    }
+
+    public static JavaVersion forClass(byte[] classData) {
+        if (classData.length<8) {
+            throw new IllegalArgumentException("Invalid class format. Should contain at least 8 bytes");
+        }
+        return forClassVersion(classData[7] & 0xFF);
     }
 
     public boolean isJava5() {

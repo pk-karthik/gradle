@@ -241,6 +241,12 @@ public class DefaultCommandLineConverterTest extends CommandLineConverterTestSup
     }
 
     @Test
+    public void withWarnLoggingOptions() {
+        expectedLogLevel = LogLevel.WARN;
+        checkConversion("-w");
+    }
+
+    @Test
     public void withNoColor() {
         expectedConsoleOutput = ConsoleOutput.Plain;
         checkConversion("--console", "plain");
@@ -345,4 +351,10 @@ public class DefaultCommandLineConverterTest extends CommandLineConverterTestSup
         checkConversion("-t");
     }
 
+    @Test
+    public void withCompositeBuild() {
+        File build1 = currentDir.getParentFile().file("build1");
+        expectedParticipants.add(build1);
+        checkConversion("--include-build", "../build1");
+    }
 }

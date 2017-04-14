@@ -19,7 +19,6 @@ package org.gradle.plugin.devel.tasks;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -30,26 +29,30 @@ import org.gradle.api.GradleException;
 import org.gradle.api.Incubating;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.Task;
+import org.gradle.api.UncheckedIOException;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileVisitDetails;
 import org.gradle.api.file.FileVisitor;
-import org.gradle.api.internal.file.collections.DirectoryFileTree;
-import org.gradle.api.internal.project.taskfactory.TaskClassInfoStore;
-import org.gradle.api.internal.project.taskfactory.TaskPropertyValidationAccess;
+import org.gradle.api.internal.DocumentationRegistry;
+import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory;
+import org.gradle.api.tasks.CacheableTask;
+import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputDirectory;
-import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputFile;
-import org.gradle.api.tasks.ParallelizableTask;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.SkipWhenEmpty;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.TaskValidationException;
 import org.gradle.api.tasks.VerificationTask;
 import org.gradle.internal.Cast;
 import org.gradle.internal.classloader.ClassLoaderFactory;
+import org.gradle.internal.classloader.ClassLoaderUtils;
+import org.gradle.internal.classpath.ClassPath;
 import org.gradle.internal.classpath.DefaultClassPath;
-import org.gradle.internal.reflect.Instantiator;
+import org.gradle.util.internal.Java9ClassReader;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Opcodes;
@@ -72,36 +75,40 @@ import java.util.Map;
  *     Task properties must be annotated with one of:
  * </p>
  *
- * <p><b>Properties taken into account during up-to-date checks:</b></p>
- *
  * <ul>
  *     <li>
- *         {@literal @}{@link org.gradle.api.tasks.Input},
- *         {@literal @}{@link org.gradle.api.tasks.Nested},
- *         {@literal @}{@link org.gradle.api.tasks.InputFile},
- *         {@literal @}{@link org.gradle.api.tasks.InputDirectory},
- *         {@literal @}{@link org.gradle.api.tasks.InputFiles}
- *         to mark it as an input to the task.
- *     </li>
- *     <li>
- *         {@literal @}{@link org.gradle.api.tasks.OutputFile},
- *         {@literal @}{@link org.gradle.api.tasks.OutputDirectory},
- *         {@literal @}{@link org.gradle.api.tasks.OutputFiles},
- *         {@literal @}{@link org.gradle.api.tasks.OutputDirectories}
- *         to mark it as an output of the task.
+ *         <b>Properties taken into account during up-to-date checks:</b>
+ *         <ul>
+*              <li>
+ *                 {@literal @}{@link org.gradle.api.tasks.Input},
+ *                 {@literal @}{@link org.gradle.api.tasks.Nested},
+ *                 {@literal @}{@link org.gradle.api.tasks.InputFile},
+ *                 {@literal @}{@link org.gradle.api.tasks.InputDirectory},
+ *                 {@literal @}{@link org.gradle.api.tasks.InputFiles}
+ *                 to mark it as an input to the task.
+ *             </li>
+ *             <li>
+ *                 {@literal @}{@link org.gradle.api.tasks.OutputFile},
+ *                 {@literal @}{@link org.gradle.api.tasks.OutputDirectory}
+ *                 to mark it as an output of the task.
+ *             </li>
+ *         </ul>
+ *    </li>
+ *    <li>
+ *         <b>Properties ignored during up-to-date checks:</b>
+ *         <ul>
+ *             <li>{@literal @}{@link javax.inject.Inject} marks a Gradle service used by the task.</li>
+ *             <li>{@literal @}{@link org.gradle.api.tasks.Console Console} marks a property that only influences the console output of the task.</li>
+ *             <li>{@literal @}{@link org.gradle.api.tasks.Internal Internal} mark an internal property of the task.</li>
+ *         </ul>
  *     </li>
  * </ul>
  *
- * <p><b>Properties ignored during up-to-date checks:</b></p>
- *
- * <ul>
- *     <li>{@literal @}{@link javax.inject.Inject} marks a Gradle service used by the task.</li>
- *     <li>{@literal @}{@link org.gradle.api.tasks.Console Console} marks a property that only influences the console output of the task.</li>
- *     <li>{@literal @}{@link org.gradle.api.tasks.Internal Internal} mark an internal property of the task.</li>
- * </ul>
+ * @since 3.0
  */
 @Incubating
-@ParallelizableTask
+@CacheableTask
+@SuppressWarnings("WeakerAccess")
 public class ValidateTaskProperties extends DefaultTask implements VerificationTask {
     private File classesDir;
     private FileCollection classpath;
@@ -111,21 +118,33 @@ public class ValidateTaskProperties extends DefaultTask implements VerificationT
 
     @TaskAction
     public void validateTaskClasses() throws IOException {
+        ClassLoader previousContextClassLoader = Thread.currentThread().getContextClassLoader();
+        ClassPath classPath = new DefaultClassPath(Iterables.concat(Collections.singleton(getClassesDir()), getClasspath()));
+        ClassLoader classLoader = getClassLoaderFactory().createIsolatedClassLoader(classPath);
+        Thread.currentThread().setContextClassLoader(classLoader);
+        try {
+            validateTaskClasses(classLoader);
+        } finally {
+            Thread.currentThread().setContextClassLoader(previousContextClassLoader);
+            ClassLoaderUtils.tryClose(classLoader);
+        }
+    }
+
+    private void validateTaskClasses(final ClassLoader classLoader) throws IOException {
         final Map<String, Boolean> taskValidationProblems = Maps.newTreeMap();
-        final ClassLoader classLoader = getClassLoaderFactory().createIsolatedClassLoader(new DefaultClassPath(Iterables.concat(Collections.singleton(getClassesDir()), getClasspath())));
         final Class<?> taskInterface;
         final Method validatorMethod;
         try {
             taskInterface = classLoader.loadClass(Task.class.getName());
-            Class<?> validatorClass = classLoader.loadClass(TaskPropertyValidationAccess.class.getName());
+            Class<?> validatorClass = classLoader.loadClass("org.gradle.api.internal.project.taskfactory.TaskPropertyValidationAccess");
             validatorMethod = validatorClass.getMethod("collectTaskValidationProblems", Class.class, Map.class);
         } catch (ClassNotFoundException e) {
-            throw Throwables.propagate(e);
+            throw new RuntimeException(e);
         } catch (NoSuchMethodException e) {
-            throw Throwables.propagate(e);
+            throw new RuntimeException(e);
         }
 
-        new DirectoryFileTree(getClassesDir()).visit(new FileVisitor() {
+        getServices().get(DirectoryFileTreeFactory.class).create(getClassesDir()).visit(new FileVisitor() {
             @Override
             public void visitDir(FileVisitDetails dirDetails) {
             }
@@ -137,9 +156,9 @@ public class ValidateTaskProperties extends DefaultTask implements VerificationT
                 }
                 ClassReader reader;
                 try {
-                    reader = new ClassReader(Files.asByteSource(fileDetails.getFile()).read());
+                    reader = new Java9ClassReader(Files.asByteSource(fileDetails.getFile()).read());
                 } catch (IOException e) {
-                    throw Throwables.propagate(e);
+                    throw new UncheckedIOException(e);
                 }
                 List<String> classNames = Lists.newArrayList();
                 reader.accept(new TaskNameCollectorVisitor(classNames), ClassReader.SKIP_CODE);
@@ -167,9 +186,9 @@ public class ValidateTaskProperties extends DefaultTask implements VerificationT
                     try {
                         validatorMethod.invoke(null, taskClass, taskValidationProblems);
                     } catch (IllegalAccessException e) {
-                        throw Throwables.propagate(e);
+                        throw new RuntimeException(e);
                     } catch (InvocationTargetException e) {
-                        throw Throwables.propagate(e);
+                        throw new RuntimeException(e);
                     }
                 }
             }
@@ -193,9 +212,9 @@ public class ValidateTaskProperties extends DefaultTask implements VerificationT
         } else {
             if (hasErrors || getFailOnWarning()) {
                 if (getIgnoreFailures()) {
-                    getLogger().warn("Task property validation finished with errors:{}", toMessageList(problemMessages));
+                    getLogger().warn("Task property validation finished with errors. See {} for more information on how to annotate task properties.{}", getDocumentationRegistry().getDocumentationFor("more_about_tasks", "sec:task_input_output_annotations"), toMessageList(problemMessages));
                 } else {
-                    throw new TaskValidationException("Task property validation failed", toExceptionList(problemMessages));
+                    throw new TaskValidationException(String.format("Task property validation failed. See %s for more information on how to annotate task properties.", getDocumentationRegistry().getDocumentationFor("more_about_tasks", "sec:task_input_output_annotations")), toExceptionList(problemMessages));
                 }
             } else {
                 getLogger().warn("Task property validation finished with warnings:{}", toMessageList(problemMessages));
@@ -253,6 +272,7 @@ public class ValidateTaskProperties extends DefaultTask implements VerificationT
     /**
      * The directory containing the classes to validate.
      */
+    @PathSensitive(PathSensitivity.RELATIVE)
     @InputDirectory
     @SkipWhenEmpty
     public File getClassesDir() {
@@ -269,7 +289,7 @@ public class ValidateTaskProperties extends DefaultTask implements VerificationT
     /**
      * The classpath used to load the classes under validation.
      */
-    @InputFiles
+    @Classpath
     public FileCollection getClasspath() {
         return classpath;
     }
@@ -309,13 +329,9 @@ public class ValidateTaskProperties extends DefaultTask implements VerificationT
      *
      * @param failOnWarning {@code true} to break the build on warning, {@code false} to ignore warnings. The default is {@code false}.
      */
+    @SuppressWarnings("unused")
     public void setFailOnWarning(boolean failOnWarning) {
         this.failOnWarning = failOnWarning;
-    }
-
-    @Inject
-    protected TaskClassInfoStore getTaskClassInfoStore() {
-        throw new UnsupportedOperationException();
     }
 
     @Inject
@@ -324,7 +340,7 @@ public class ValidateTaskProperties extends DefaultTask implements VerificationT
     }
 
     @Inject
-    protected Instantiator getInstantiator() {
+    protected DocumentationRegistry getDocumentationRegistry() {
         throw new UnsupportedOperationException();
     }
 

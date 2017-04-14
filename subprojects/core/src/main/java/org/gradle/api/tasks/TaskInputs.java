@@ -16,8 +16,6 @@
 
 package org.gradle.api.tasks;
 
-import groovy.lang.Closure;
-import org.gradle.api.Action;
 import org.gradle.api.file.FileCollection;
 import org.gradle.internal.HasInternalProtocol;
 
@@ -29,7 +27,7 @@ import java.util.Map;
  * <p>You can obtain a {@code TaskInputs} instance using {@link org.gradle.api.Task#getInputs()}.</p>
  */
 @HasInternalProtocol
-public interface TaskInputs {
+public interface TaskInputs extends CompatibilityAdapterForTaskInputs {
     /**
      * Returns true if this task has declared the inputs that it consumes.
      *
@@ -48,26 +46,26 @@ public interface TaskInputs {
      * Registers some input files for this task.
      *
      * @param paths The input files. The given paths are evaluated as per {@link org.gradle.api.Project#files(Object...)}.
-     * @return this
+     * @return a property builder to further configure the property.
      */
-    TaskInputs files(Object... paths);
+    TaskInputFilePropertyBuilder files(Object... paths);
 
     /**
      * Registers some input file for this task.
      *
      * @param path The input file. The given path is evaluated as per {@link org.gradle.api.Project#files(Object...)}.
-     * @return this
+     * @return a property builder to further configure the property.
      */
-    TaskInputs file(Object path);
+    TaskInputFilePropertyBuilder file(Object path);
 
     /**
      * Registers an input directory hierarchy. All files found under the given directory are treated as input files for
      * this task.
      *
      * @param dirPath The directory. The path is evaluated as per {@link org.gradle.api.Project#file(Object)}.
-     * @return this
+     * @return a property builder to further configure the property.
      */
-    TaskInputs dir(Object dirPath);
+    TaskInputFilePropertyBuilder dir(Object dirPath);
 
     /**
      * Returns the set of input properties for this task.
@@ -119,7 +117,10 @@ public interface TaskInputs {
      *
      * @param paths The paths. These are evaluated as per {@link org.gradle.api.Project#files(Object...)}.
      * @return this
+     *
+     * @deprecated Use {@link #files(Object...)} instead and set {@code skipWhenEmpty} to {@code true}.
      */
+    @Deprecated
     TaskInputs source(Object... paths);
 
     /**
@@ -128,7 +129,10 @@ public interface TaskInputs {
      *
      * @param path The path. This is evaluated as per {@link org.gradle.api.Project#files(Object...)}.
      * @return this
+     *
+     * @deprecated Use {@link #file(Object)} instead and set {@code skipWhenEmpty} to {@code true}.
      */
+    @Deprecated
     TaskInputs source(Object path);
 
     /**
@@ -137,22 +141,9 @@ public interface TaskInputs {
      *
      * @param path The path. This is evaluated as per {@link org.gradle.api.Project#file(Object)}.
      * @return this
+     *
+     * @deprecated Use {@link #dir(Object)} instead and set {@code skipWhenEmpty} to {@code true}.
      */
+    @Deprecated
     TaskInputs sourceDir(Object path);
-
-    /**
-     * Executes the given configuration action on the {@code TaskInputs}. The action is executed before the task is executed.
-     *
-     * @param action the configuration action to execute.
-     * @return this
-     */
-    TaskInputs configure(Action<? super TaskInputs> action);
-
-    /**
-     * Executes the given configuration action on the {@code TaskInputs}. The action is executed before the task is executed.
-     *
-     * @param action the configuration action to execute.
-     * @return this
-     */
-    TaskInputs configure(Closure action);
 }

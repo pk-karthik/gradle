@@ -43,6 +43,7 @@ import org.gradle.process.internal.streams.SafeStreams;
 import org.gradle.tooling.internal.build.DefaultBuildEnvironment;
 import org.gradle.tooling.internal.consumer.parameters.FailsafeBuildProgressListenerAdapter;
 import org.gradle.tooling.internal.consumer.versioning.ModelMapping;
+import org.gradle.tooling.internal.gradle.DefaultBuildIdentifier;
 import org.gradle.tooling.internal.protocol.InternalBuildAction;
 import org.gradle.tooling.internal.protocol.InternalBuildEnvironment;
 import org.gradle.tooling.internal.protocol.InternalBuildProgressListener;
@@ -50,7 +51,10 @@ import org.gradle.tooling.internal.protocol.ModelIdentifier;
 import org.gradle.tooling.internal.protocol.events.InternalProgressEvent;
 import org.gradle.tooling.internal.provider.connection.ProviderConnectionParameters;
 import org.gradle.tooling.internal.provider.connection.ProviderOperationParameters;
+import org.gradle.tooling.internal.provider.serialization.PayloadSerializer;
+import org.gradle.tooling.internal.provider.serialization.SerializedPayload;
 import org.gradle.tooling.internal.provider.test.ProviderInternalTestExecutionRequest;
+import org.gradle.tooling.model.UnsupportedMethodException;
 import org.gradle.util.GradleVersion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,6 +105,7 @@ public class ProviderConnection {
                 throw new IllegalArgumentException("Cannot run tasks and fetch the build environment model.");
             }
             return new DefaultBuildEnvironment(
+                    new DefaultBuildIdentifier(providerParameters.getProjectDir()),
                     params.gradleUserhome,
                     GradleVersion.current().getVersion(),
                     params.daemonParams.getEffectiveJvm().getJavaHome(),
@@ -113,25 +118,13 @@ public class ProviderConnection {
         return run(action, cancellationToken, listenerConfig, providerParameters, params);
     }
 
-    public Object buildModels(String modelName, BuildCancellationToken cancellationToken, ProviderOperationParameters providerParameters) {
-        List<String> tasks = providerParameters.getTasks();
-        if (modelName.equals(ModelIdentifier.NULL_MODEL) && tasks == null) {
-            throw new IllegalArgumentException("No model type or tasks specified.");
-        }
-        Parameters params = initParams(providerParameters);
-
-        StartParameter startParameter = new ProviderStartParameterConverter().toStartParameter(providerParameters, params.properties);
-        ProgressListenerConfiguration listenerConfig = ProgressListenerConfiguration.from(providerParameters);
-        BuildAction action = new BuildModelAction(startParameter, modelName, tasks != null, listenerConfig.clientSubscriptions);
-        return run(action, cancellationToken, listenerConfig, providerParameters, params);
-    }
-
     public Object run(InternalBuildAction<?> clientAction, BuildCancellationToken cancellationToken, ProviderOperationParameters providerParameters) {
+        List<String> tasks = providerParameters.getTasks();
         SerializedPayload serializedAction = payloadSerializer.serialize(clientAction);
         Parameters params = initParams(providerParameters);
         StartParameter startParameter = new ProviderStartParameterConverter().toStartParameter(providerParameters, params.properties);
         ProgressListenerConfiguration listenerConfig = ProgressListenerConfiguration.from(providerParameters);
-        BuildAction action = new ClientProvidedBuildAction(startParameter, serializedAction, listenerConfig.clientSubscriptions);
+        BuildAction action = new ClientProvidedBuildAction(startParameter, serializedAction, tasks != null, listenerConfig.clientSubscriptions);
         return run(action, cancellationToken, listenerConfig, providerParameters, params);
     }
 
@@ -196,6 +189,16 @@ public class ProviderConnection {
         if (jvmArguments != null) {
             daemonParams.setJvmArgs(jvmArguments);
         }
+        Map<String, String> envVariables = null;
+        try {
+            envVariables = operationParameters.getEnvironmentVariables();
+        } catch (UnsupportedMethodException e) {
+            LOGGER.debug("Environment variables customization is not supported by target Gradle instance", e);
+        }
+        if (envVariables != null) {
+            daemonParams.setEnvironmentVariables(envVariables);
+        }
+
         File javaHome = operationParameters.getJavaHome();
         if (javaHome != null) {
             daemonParams.setJvm(Jvm.forHome(javaHome));

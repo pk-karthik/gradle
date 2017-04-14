@@ -18,6 +18,7 @@ package org.gradle.internal.component.model;
 
 import org.gradle.api.artifacts.ModuleVersionSelector;
 import org.gradle.api.artifacts.component.ComponentSelector;
+import org.gradle.api.internal.attributes.AttributesSchemaInternal;
 
 import java.util.Collection;
 import java.util.List;
@@ -50,23 +51,31 @@ public interface DependencyMetadata {
     DependencyMetadata withTarget(ComponentSelector target);
 
     /**
-     * Returns a copy of this dependency with the changing flag set.
-     */
-    DependencyMetadata withChanging();
-
-    /**
      * Returns the component selector for this dependency.
      *
      * @return Component selector
      */
     ComponentSelector getSelector();
 
-    // The following methods all wrap an underlying method on DependencyDescriptor that we use, to help migrate away from using Ivy types.
-    String[] getModuleConfigurations();
+    List<Exclude> getExcludes();
 
-    String[] getDependencyConfigurations(String moduleConfiguration, String requestedConfiguration);
-
+    /**
+     * Returns a view of the excludes filtered by configurations
+     * @param configurations the configurations to be included
+     * @return matching excludes
+     */
     List<Exclude> getExcludes(Collection<String> configurations);
+
+    /**
+     * Select the target configurations for this dependency from the given target component.
+     */
+    // TODO:ADAM - fromComponent and fromConfiguration should be implicit in this metadata
+    Set<ConfigurationMetadata> selectConfigurations(ComponentResolveMetadata fromComponent, ConfigurationMetadata fromConfiguration, ComponentResolveMetadata targetComponent, AttributesSchemaInternal consumerSchema);
+
+    /**
+     * Returns the set of source configurations that this dependency should be attached to.
+     */
+    Set<String> getModuleConfigurations();
 
     boolean isChanging();
 

@@ -20,12 +20,15 @@ import org.apache.ivy.core.module.id.ArtifactRevisionId
 import org.apache.ivy.core.module.id.ModuleRevisionId
 import org.gradle.api.artifacts.ModuleVersionSelector
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.internal.artifacts.DefaultModuleIdentifier
 import org.gradle.api.internal.artifacts.DefaultModuleVersionSelector
+import org.gradle.api.internal.artifacts.ImmutableModuleIdentifierFactory
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.DefaultVersionSelectorScheme
-import org.gradle.internal.component.external.descriptor.Dependency
+import org.gradle.api.internal.artifacts.ivyservice.resolveengine.excludes.ModuleExclusions
 import org.gradle.internal.component.external.descriptor.ModuleDescriptorState
 import org.gradle.internal.component.external.model.DefaultModuleComponentIdentifier
-import org.gradle.internal.component.external.model.MutableModuleComponentResolveMetadata
+import org.gradle.internal.component.external.model.MutableMavenModuleResolveMetadata
+import org.gradle.internal.component.model.DependencyMetadata
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
@@ -34,28 +37,36 @@ import spock.lang.Specification
 abstract class AbstractGradlePomModuleDescriptorParserTest extends Specification {
     @Rule
     public final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
-    final GradlePomModuleDescriptorParser parser = new GradlePomModuleDescriptorParser(new DefaultVersionSelectorScheme())
+    final ImmutableModuleIdentifierFactory moduleIdentifierFactory = Mock() {
+        module(_, _) >> { args ->
+            DefaultModuleIdentifier.newId(*args)
+        }
+    }
+    final ModuleExclusions moduleExclusions = new ModuleExclusions(moduleIdentifierFactory)
+    final GradlePomModuleDescriptorParser parser = new GradlePomModuleDescriptorParser(new DefaultVersionSelectorScheme(), moduleIdentifierFactory, moduleExclusions)
     final parseContext = Mock(DescriptorParseContext)
     TestFile pomFile
     ModuleDescriptorState descriptor
+    MutableMavenModuleResolveMetadata metadata
 
     def "setup"() {
         pomFile = tmpDir.file('foo')
     }
 
     protected void parsePom() {
-        descriptor = parseMetaData().descriptor
+        metadata = parseMetaData()
+        descriptor = metadata.descriptor
     }
 
-    protected MutableModuleComponentResolveMetadata parseMetaData() {
+    protected MutableMavenModuleResolveMetadata parseMetaData() {
         parser.parseMetaData(parseContext, pomFile, true)
     }
 
-    protected void hasDefaultDependencyArtifact(Dependency descriptor) {
+    protected void hasDefaultDependencyArtifact(DependencyMetadata descriptor) {
         assert descriptor.dependencyArtifacts.empty
     }
 
-    protected void hasDependencyArtifact(Dependency descriptor, String name, String type, String ext, String classifier = null) {
+    protected void hasDependencyArtifact(DependencyMetadata descriptor, String name, String type, String ext, String classifier = null) {
         def artifact = single(descriptor.dependencyArtifacts).artifactName
         assert artifact.name == name
         assert artifact.type == type

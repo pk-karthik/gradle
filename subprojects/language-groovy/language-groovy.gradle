@@ -3,10 +3,9 @@
 sourceCompatibility = 1.6
 
 dependencies {
+    compile project(":core")
     compile project(":platformJvm")
     compile project(":languageJava")
-
-    testCompile libraries.groovy
 
     // TODO - get rid of this cycle
     integTestRuntime project(':plugins')

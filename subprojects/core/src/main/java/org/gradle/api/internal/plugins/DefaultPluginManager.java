@@ -25,33 +25,44 @@ import org.gradle.api.DomainObjectSet;
 import org.gradle.api.Nullable;
 import org.gradle.api.Plugin;
 import org.gradle.api.internal.DefaultDomainObjectSet;
-import org.gradle.api.plugins.*;
+import org.gradle.api.plugins.AppliedPlugin;
+import org.gradle.api.plugins.InvalidPluginException;
+import org.gradle.api.plugins.PluginContainer;
+import org.gradle.api.plugins.PluginInstantiationException;
+import org.gradle.api.plugins.UnknownPluginException;
 import org.gradle.internal.Cast;
+import org.gradle.internal.operations.BuildOperationContext;
+import org.gradle.internal.progress.BuildOperationDetails;
+import org.gradle.internal.progress.BuildOperationExecutor;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.reflect.ObjectInstantiationException;
-import org.gradle.plugin.internal.PluginId;
+import org.gradle.plugin.use.PluginId;
+import org.gradle.plugin.use.internal.DefaultPluginId;
 
 import java.util.Map;
 
 @NotThreadSafe
 public class DefaultPluginManager implements PluginManagerInternal {
 
-    public static final String CORE_PLUGIN_NAMESPACE = "org" + PluginId.SEPARATOR + "gradle";
-    public static final String CORE_PLUGIN_PREFIX = CORE_PLUGIN_NAMESPACE + PluginId.SEPARATOR;
+    public static final String CORE_PLUGIN_NAMESPACE = "org" + DefaultPluginId.SEPARATOR + "gradle";
+    public static final String CORE_PLUGIN_PREFIX = CORE_PLUGIN_NAMESPACE + DefaultPluginId.SEPARATOR;
 
     private final Instantiator instantiator;
-    private final PluginApplicator applicator;
+    private final PluginTarget target;
     private final PluginRegistry pluginRegistry;
     private final DefaultPluginContainer pluginContainer;
     private final Map<Class<?>, PluginImplementation<?>> plugins = Maps.newHashMap();
     private final Map<Class<?>, Plugin<?>> instances = Maps.newHashMap();
     private final Map<PluginId, DomainObjectSet<PluginWithId>> idMappings = Maps.newHashMap();
 
-    public DefaultPluginManager(final PluginRegistry pluginRegistry, Instantiator instantiator, final PluginApplicator applicator) {
+    private final BuildOperationExecutor buildOperationExecutor;
+
+    public DefaultPluginManager(final PluginRegistry pluginRegistry, Instantiator instantiator, final PluginTarget target, BuildOperationExecutor buildOperationExecutor) {
         this.instantiator = instantiator;
-        this.applicator = applicator;
+        this.target = target;
         this.pluginRegistry = pluginRegistry;
         this.pluginContainer = new DefaultPluginContainer(pluginRegistry, this);
+        this.buildOperationExecutor = buildOperationExecutor;
     }
 
     private <T> T instantiatePlugin(Class<T> type) {
@@ -105,7 +116,7 @@ public class DefaultPluginManager implements PluginManagerInternal {
     }
 
     public void apply(String pluginId) {
-        PluginImplementation<?> plugin = pluginRegistry.lookup(PluginId.unvalidated(pluginId));
+        PluginImplementation<?> plugin = pluginRegistry.lookup(DefaultPluginId.unvalidated(pluginId));
         if (plugin == null) {
             throw new UnknownPluginException("Plugin with id '" + pluginId + "' not found.");
         }
@@ -116,42 +127,70 @@ public class DefaultPluginManager implements PluginManagerInternal {
         doApply(pluginRegistry.inspect(type));
     }
 
-    private void doApply(PluginImplementation<?> plugin) {
+    private void doApply(final PluginImplementation<?> plugin) {
         PluginId pluginId = plugin.getPluginId();
         String pluginIdStr = pluginId == null ? null : pluginId.toString();
         Class<?> pluginClass = plugin.asClass();
+        ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
         try {
+            Thread.currentThread().setContextClassLoader(pluginClass.getClassLoader());
             if (plugin.getType().equals(PotentialPlugin.Type.UNKNOWN)) {
                 throw new InvalidPluginException("'" + pluginClass.getName() + "' is neither a plugin or a rule source and cannot be applied.");
             } else {
-                boolean imperative = plugin.isImperative();
                 Runnable adder = addPluginInternal(plugin);
                 if (adder != null) {
-                    if (imperative) {
-                        Plugin<?> pluginInstance = producePluginInstance(pluginClass);
-                        instances.put(pluginClass, pluginInstance);
-
-                        if (plugin.isHasRules()) {
-                            applicator.applyImperativeRulesHybrid(pluginIdStr, pluginInstance);
-                        } else {
-                            applicator.applyImperative(pluginIdStr, pluginInstance);
-                        }
-
-                        // Important not to add until after it has been applied as there can be
-                        // plugins.withType() callbacks waiting to build on what the plugin did
-                        pluginContainer.add(pluginInstance);
-                    } else {
-                        applicator.applyRules(pluginIdStr, pluginClass);
-                    }
-
-                    adder.run();
+                    addPluginWithBuildOperation(adder, plugin, pluginIdStr, pluginClass);
                 }
             }
         } catch (PluginApplicationException e) {
             throw e;
         } catch (Exception e) {
             throw new PluginApplicationException(plugin.getDisplayName(), e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(contextClassLoader);
         }
+    }
+
+    private void addPluginWithBuildOperation(final Runnable adder, final PluginImplementation<?> plugin, final String pluginId, final Class<?> pluginClass) {
+        buildOperationExecutor.run(computeApplyPluginBuildOperationDetails(plugin), new Action<BuildOperationContext>() {
+            @Override
+            public void execute(BuildOperationContext buildOperationContext) {
+                addPlugin(adder, plugin, pluginId, pluginClass);
+            }
+        });
+    }
+
+    private void addPlugin(Runnable adder, PluginImplementation<?> plugin, String pluginId, Class<?> pluginClass) {
+        boolean imperative = plugin.isImperative();
+        if (imperative) {
+            Plugin<?> pluginInstance = producePluginInstance(pluginClass);
+            instances.put(pluginClass, pluginInstance);
+
+            if (plugin.isHasRules()) {
+                target.applyImperativeRulesHybrid(pluginId, pluginInstance);
+            } else {
+                target.applyImperative(pluginId, pluginInstance);
+            }
+
+            // Important not to add until after it has been applied as there can be
+            // plugins.withType() callbacks waiting to build on what the plugin did
+            pluginContainer.add(pluginInstance);
+        } else {
+            target.applyRules(pluginId, pluginClass);
+        }
+
+        adder.run();
+    }
+
+    private BuildOperationDetails computeApplyPluginBuildOperationDetails(PluginImplementation<?> pluginImplementation) {
+        String identifier;
+        if (pluginImplementation.getPluginId() != null) {
+            identifier = pluginImplementation.getPluginId().toString();
+        } else {
+            identifier = pluginImplementation.asClass().getName();
+        }
+        String name = "Apply plugin " + identifier;
+        return BuildOperationDetails.displayName(name + " to " + target.toString()).name(name).operationDescriptor(pluginImplementation).build();
     }
 
     private Plugin<?> producePluginInstance(Class<?> pluginClass) {
@@ -176,7 +215,7 @@ public class DefaultPluginManager implements PluginManagerInternal {
     }
 
     public DomainObjectSet<PluginWithId> pluginsForId(String id) {
-        PluginId pluginId = PluginId.unvalidated(id);
+        PluginId pluginId = DefaultPluginId.unvalidated(id);
         DomainObjectSet<PluginWithId> pluginsForId = idMappings.get(pluginId);
         if (pluginsForId == null) {
             pluginsForId = new DefaultDomainObjectSet<PluginWithId>(PluginWithId.class, Sets.<PluginWithId>newLinkedHashSet());

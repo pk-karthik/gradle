@@ -17,12 +17,12 @@
 package org.gradle.internal.logging.console;
 
 import org.gradle.api.logging.LogLevel;
+import org.gradle.internal.logging.events.BatchOutputEventListener;
 import org.gradle.internal.logging.events.LogLevelChangeEvent;
+import org.gradle.internal.logging.events.OutputEvent;
+import org.gradle.internal.logging.events.RenderableOutputEvent;
 import org.gradle.internal.logging.text.AbstractLineChoppingStyledTextOutput;
 import org.gradle.internal.logging.text.StyledTextOutput;
-import org.gradle.internal.logging.events.OutputEvent;
-import org.gradle.internal.logging.events.OutputEventListener;
-import org.gradle.internal.logging.events.RenderableOutputEvent;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -30,8 +30,9 @@ import java.util.Date;
 import static org.gradle.internal.logging.text.StyledTextOutput.Style.Error;
 import static org.gradle.internal.logging.text.StyledTextOutput.Style.Normal;
 
-public class StyledTextOutputBackedRenderer implements OutputEventListener {
+public class StyledTextOutputBackedRenderer extends BatchOutputEventListener {
     private final OutputEventTextOutputImpl textOutput;
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("HH:mm:ss.SSS");
     private boolean debugOutput;
     private RenderableOutputEvent lastEvent;
 
@@ -51,7 +52,7 @@ public class StyledTextOutputBackedRenderer implements OutputEventListener {
                 if (!textOutput.atEndOfLine) {
                     textOutput.println();
                 }
-                textOutput.text(new SimpleDateFormat("HH:mm:ss.SSS").format(new Date(outputEvent.getTimestamp())));
+                textOutput.text(dateFormat.format(new Date(outputEvent.getTimestamp())));
                 textOutput.text(" [");
                 textOutput.text(outputEvent.getLogLevel());
                 textOutput.text("] [");
